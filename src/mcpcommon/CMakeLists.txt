@@ -161,6 +161,12 @@ qt_internal_add_module(McpCommon
         Qt::Core
 )
 
+# Workaround: rename library to not start with "Qt6" so windeployqt doesn't treat it as official Qt
+set_target_properties(McpCommon PROPERTIES
+    OUTPUT_NAME "McpCommon"
+    PREFIX "lib"
+)
+
 ## Scopes:
 #####################################################################
 
