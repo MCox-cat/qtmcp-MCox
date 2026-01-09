@@ -204,6 +204,7 @@ void QMcpAbstractHttpServer::Private::sendHttpResponse(QTcpSocket *socket, const
     QByteArray response = u"HTTP/1.1 %1 %2\r\n"
                           "Content-Type: %3\r\n"
                           "Content-Length: %4\r\n"
+                          "Connection: close\r\n"
                           "\r\n"_s
                               .arg(statusCode)
                               .arg(statusText)
@@ -301,4 +302,3 @@ void QMcpAbstractHttpServer::closeSseConnection(const QUuid &id)
     socket->deleteLater();
     return;
 }
-

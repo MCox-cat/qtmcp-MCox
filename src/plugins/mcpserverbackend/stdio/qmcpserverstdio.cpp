@@ -113,6 +113,7 @@ QMcpServerStdio::~QMcpServerStdio() = default;
 void QMcpServerStdio::start(const QString &server)
 {
     Q_UNUSED(server);
+    emit started();
 }
 
 void QMcpServerStdio::send(const QUuid &session, const QJsonObject &object)

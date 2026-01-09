@@ -2,12 +2,15 @@
 #include <QtCore/QUrlQuery>
 #include <QtCore/QJsonDocument>
 #include <QtCore/QJsonObject>
+#include <QtCore/QLoggingCategory>
+
+Q_DECLARE_LOGGING_CATEGORY(lcQMcpServerSsePlugin)
 
 class HttpServer::Private{
 public:
     QSet<QUuid> sessions;
+    QUuid implicitSession;  // For handling direct POSTs without prior SSE connection
 };
-
 
 HttpServer::HttpServer(QObject *parent)
     : QMcpAbstractHttpServer(parent)
@@ -35,6 +38,38 @@ QByteArray HttpServer::getSse(const QNetworkRequest &request)
         qWarning() << request.headers();
     }
     return response;
+}
+
+QByteArray HttpServer::post(const QNetworkRequest &request, const QByteArray &body)
+{
+    // Handle root POST - VS Code MCP client may post to root instead of /messages/
+    qCDebug(lcQMcpServerSsePlugin) << "Root POST received, active sessions:" << d->sessions.size();
+
+    QUuid session;
+    if (!d->sessions.isEmpty()) {
+        // Use an existing SSE session
+        session = *d->sessions.begin();
+    } else if (!d->implicitSession.isNull()) {
+        // Reuse implicit session from previous request
+        session = d->implicitSession;
+    } else {
+        // Create an implicit session for direct POST (VS Code without SSE)
+        session = QUuid::createUuid();
+        d->implicitSession = session;
+        qCDebug(lcQMcpServerSsePlugin) << "Created implicit session for direct POST:" << session;
+        emit newSession(session);
+    }
+
+    QJsonParseError error;
+    QJsonDocument doc = QJsonDocument::fromJson(body, &error);
+    if (error.error == QJsonParseError::NoError && doc.isObject()) {
+        qCDebug(lcQMcpServerSsePlugin) << "Root POST: forwarding to session" << session;
+        emit received(session, doc.object());
+    } else {
+        qWarning() << body;
+        qWarning() << "error parsing message" << error.errorString();
+    }
+    return "Accept"_ba;
 }
 
 QByteArray HttpServer::postMessages(const QNetworkRequest &request, const QByteArray &body)
