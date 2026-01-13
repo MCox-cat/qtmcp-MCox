@@ -15,6 +15,7 @@ public:
 
     Q_INVOKABLE QByteArray getSse(const QNetworkRequest &request);
     Q_INVOKABLE QByteArray getMcp(const QNetworkRequest &request);
+    Q_INVOKABLE QByteArray deleteMcp(const QNetworkRequest &request);
     Q_INVOKABLE QByteArray post(const QNetworkRequest &request, const QByteArray &body);
     Q_INVOKABLE QByteArray postMessages(const QNetworkRequest &request, const QByteArray &body);
     Q_INVOKABLE QByteArray postMcp(const QNetworkRequest &request, const QByteArray &body);

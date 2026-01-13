@@ -225,6 +225,66 @@ QByteArray HttpServer::getMcp(const QNetworkRequest &request)
     return QByteArray();
 }
 
+QByteArray HttpServer::deleteMcp(const QNetworkRequest &request)
+{
+    qCDebug(lcQMcpServerSsePlugin) << "/mcp DELETE received";
+
+    // DELETE requests are used to terminate a session
+    // Extract session ID from header
+    if (!request.hasRawHeader("Mcp-Session-Id")) {
+        qWarning() << "DELETE /mcp without Mcp-Session-Id header";
+        return QByteArray();
+    }
+
+    QByteArray sessionIdHeader = request.rawHeader("Mcp-Session-Id");
+    QUuid session = QUuid::fromString(QString::fromUtf8(sessionIdHeader));
+
+    if (session.isNull()) {
+        qWarning() << "Invalid Mcp-Session-Id in DELETE:" << sessionIdHeader;
+        return QByteArray();
+    }
+
+    qCDebug(lcQMcpServerSsePlugin) << "DELETE for session:" << session;
+
+    // Get the socket for this request
+    QTcpSocket *socket = getSocketForRequest(request);
+    if (!socket) {
+        qWarning() << "No socket found for DELETE /mcp request";
+        return QByteArray();
+    }
+
+    // Register this socket as a session to prevent automatic HTTP wrapper
+    registerSession(session, request);
+
+    // Clean up session state
+    d->sessionUsesNewProtocol.remove(session);
+    d->sessions.remove(session);
+
+    // Remove any pending requests for this session
+    for (int i = d->pendingRequests.size() - 1; i >= 0; --i) {
+        if (d->pendingRequests[i].sessionId == session) {
+            d->pendingRequests.removeAt(i);
+        }
+    }
+
+    qCDebug(lcQMcpServerSsePlugin) << "Terminated session" << session;
+
+    // Send 200 OK response
+    QByteArray response = QByteArrayLiteral("HTTP/1.1 200 OK\r\n")
+                          + "Mcp-Session-Id: " + session.toByteArray(QUuid::WithoutBraces) + "\r\n"
+                          + "Content-Length: 0\r\n"
+                          + "Connection: close\r\n"
+                          + "\r\n";
+
+    socket->write(response);
+    socket->flush();
+
+    qCDebug(lcQMcpServerSsePlugin) << "Sent 200 OK for DELETE request, session" << session;
+
+    // Return empty since we already sent the response
+    return QByteArray();
+}
+
 QByteArray HttpServer::postMcp(const QNetworkRequest &request, const QByteArray &body)
 {
     // New Streamable HTTP protocol endpoint
