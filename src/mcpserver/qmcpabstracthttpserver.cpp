@@ -31,6 +31,7 @@ public:
 
     QMap<QTcpSocket*, ParseData> dataMap;
     QMap<QUuid, QTcpSocket*> sessions;
+    QMap<QString, QString> responseHeaders;  // Custom headers for next response
 };
 
 QMcpAbstractHttpServer::Private::Private(QMcpAbstractHttpServer *parent)
@@ -203,14 +204,20 @@ void QMcpAbstractHttpServer::Private::sendHttpResponse(QTcpSocket *socket, const
     QString statusText = (statusCode == 200) ? "OK"_L1 : "Not Found"_L1;
     QByteArray response = u"HTTP/1.1 %1 %2\r\n"
                           "Content-Type: %3\r\n"
-                          "Content-Length: %4\r\n"
-                          "Connection: close\r\n"
-                          "\r\n"_s
+                          "Content-Length: %4\r\n"_s
                               .arg(statusCode)
                               .arg(statusText)
                               .arg(contentType)
                               .arg(data.size())
                               .toLatin1();
+
+    // Add custom headers if any
+    for (auto it = responseHeaders.begin(); it != responseHeaders.end(); ++it) {
+        response += it.key().toUtf8() + ": " + it.value().toUtf8() + "\r\n";
+    }
+    responseHeaders.clear();  // Clear headers after use
+
+    response += "Connection: close\r\n\r\n";
     response += data;
     socket->write(response);
     socket->flush();
@@ -301,4 +308,33 @@ void QMcpAbstractHttpServer::closeSseConnection(const QUuid &id)
     socket->close();
     socket->deleteLater();
     return;
+}
+
+void QMcpAbstractHttpServer::setResponseHeader(const QString &name, const QString &value)
+{
+    d->responseHeaders.insert(name, value);
+}
+
+void QMcpAbstractHttpServer::registerSession(const QUuid &session, const QNetworkRequest &request)
+{
+    // Find the socket associated with this request
+    const auto sockets = d->dataMap.keys();
+    for (QTcpSocket *socket : sockets) {
+        if (d->dataMap.value(socket).request == request) {
+            d->sessions.insert(session, socket);
+            qDebug() << "Registered session" << session << "with socket";
+            break;
+        }
+    }
+}
+
+QTcpSocket* QMcpAbstractHttpServer::getSocketForRequest(const QNetworkRequest &request) const
+{
+    const auto sockets = d->dataMap.keys();
+    for (QTcpSocket *socket : sockets) {
+        if (d->dataMap.value(socket).request == request) {
+            return socket;
+        }
+    }
+    return nullptr;
 }

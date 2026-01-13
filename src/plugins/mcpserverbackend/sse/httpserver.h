@@ -16,9 +16,11 @@ public:
     Q_INVOKABLE QByteArray getSse(const QNetworkRequest &request);
     Q_INVOKABLE QByteArray post(const QNetworkRequest &request, const QByteArray &body);
     Q_INVOKABLE QByteArray postMessages(const QNetworkRequest &request, const QByteArray &body);
+    Q_INVOKABLE QByteArray postMcp(const QNetworkRequest &request, const QByteArray &body);
 
 public slots:
     void send(const QUuid &session, const QJsonObject &object);
+    void sendWithHeader(const QUuid &session, const QJsonObject &object);
 
 signals:
     void newSession(const QUuid &session);

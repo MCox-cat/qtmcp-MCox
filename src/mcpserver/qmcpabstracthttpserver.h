@@ -9,6 +9,7 @@
 QT_BEGIN_NAMESPACE
 
 class QTcpServer;
+class QTcpSocket;
 
 /*!
     \class QMcpAbstractHttpServer
@@ -75,6 +76,33 @@ protected:
         \param id UUID of the SSE connection to close
     */
     void closeSseConnection(const QUuid &id);
+
+    /*!
+        Sets a custom header to be included in the next HTTP response.
+        This is used for implementing the new MCP protocol's Mcp-Session-Id header.
+        
+        \param name The header name
+        \param value The header value
+    */
+    void setResponseHeader(const QString &name, const QString &value);
+
+    /*!
+        Registers a session with its associated socket for non-SSE responses.
+        This is used for the new MCP protocol.
+        
+        \param session UUID of the session
+        \param request The network request associated with this session
+    */
+    void registerSession(const QUuid &session, const QNetworkRequest &request);
+
+    /*!
+        Gets the TCP socket associated with a network request.
+        Used for sending custom HTTP responses.
+        
+        \param request The network request
+        \return Pointer to the TCP socket, or nullptr if not found
+    */
+    QTcpSocket* getSocketForRequest(const QNetworkRequest &request) const;
 
 private:
     class Private;
