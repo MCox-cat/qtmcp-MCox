@@ -172,8 +172,57 @@ void HttpServer::sendWithHeader(const QUuid &session, const QJsonObject &object)
             return;
         }
     }
-    
+
     qWarning() << "No pending request found for session" << session;
+}
+
+QByteArray HttpServer::getMcp(const QNetworkRequest &request)
+{
+    qCDebug(lcQMcpServerSsePlugin) << "/mcp GET received";
+
+    // GET requests are used to retrieve pending server-initiated messages
+    // Extract session ID from header
+    if (!request.hasRawHeader("Mcp-Session-Id")) {
+        qWarning() << "GET /mcp without Mcp-Session-Id header";
+        return QByteArray();
+    }
+
+    QByteArray sessionIdHeader = request.rawHeader("Mcp-Session-Id");
+    QUuid session = QUuid::fromString(QString::fromUtf8(sessionIdHeader));
+
+    if (session.isNull()) {
+        qWarning() << "Invalid Mcp-Session-Id in GET:" << sessionIdHeader;
+        return QByteArray();
+    }
+
+    qCDebug(lcQMcpServerSsePlugin) << "GET for session:" << session;
+
+    // Get the socket for this request
+    QTcpSocket *socket = getSocketForRequest(request);
+    if (!socket) {
+        qWarning() << "No socket found for GET /mcp request";
+        return QByteArray();
+    }
+
+    // Register this socket as a session to prevent automatic HTTP wrapper
+    registerSession(session, request);
+
+    // For now, send 204 No Content immediately since we don't have server-initiated messages queued
+    // In a full implementation, this would long-poll and wait for server messages
+    setResponseHeader("Mcp-Session-Id", session.toByteArray(QUuid::WithoutBraces));
+
+    QByteArray response = QByteArrayLiteral("HTTP/1.1 204 No Content\r\n")
+                          + "Mcp-Session-Id: " + session.toByteArray(QUuid::WithoutBraces) + "\r\n"
+                          + "Connection: keep-alive\r\n"
+                          + "\r\n";
+
+    socket->write(response);
+    socket->flush();
+
+    qCDebug(lcQMcpServerSsePlugin) << "Sent 204 No Content for GET request, session" << session;
+
+    // Return empty since we already sent the response
+    return QByteArray();
 }
 
 QByteArray HttpServer::postMcp(const QNetworkRequest &request, const QByteArray &body)
@@ -215,25 +264,35 @@ QByteArray HttpServer::postMcp(const QNetworkRequest &request, const QByteArray 
     // This prevents the automatic HTTP response wrapper
     registerSession(session, request);
 
+    // Mark this session as using new protocol (do this for every request, not just new sessions)
+    d->sessionUsesNewProtocol.insert(session, true);
+
     if (isNewSession) {
-        d->sessionUsesNewProtocol.insert(session, true);
         qCDebug(lcQMcpServerSsePlugin) << "Created new protocol session:" << session;
         emit newSession(session);
     }
-
-    // Queue this request for async response
-    Private::PendingRequest pending;
-    pending.socket = socket;
-    pending.sessionId = session;
-    d->pendingRequests.append(pending);
-    qCDebug(lcQMcpServerSsePlugin) << "Queued request for session" << session;
 
     // Parse and forward the request
     QJsonParseError error;
     QJsonDocument doc = QJsonDocument::fromJson(body, &error);
     if (error.error == QJsonParseError::NoError && doc.isObject()) {
-        qCDebug(lcQMcpServerSsePlugin) << "/mcp: forwarding to session" << session;
-        emit received(session, doc.object());
+        auto jsonObj = doc.object();
+        qCDebug(lcQMcpServerSsePlugin) << "/mcp: forwarding to session" << session << "method:" << jsonObj.value("method").toString();
+
+        // Only queue requests that expect a response (have an "id" field)
+        // Notifications don't have an id and don't get responses
+        if (jsonObj.contains("id")) {
+            // Queue this request for async response
+            Private::PendingRequest pending;
+            pending.socket = socket;
+            pending.sessionId = session;
+            d->pendingRequests.append(pending);
+            qCDebug(lcQMcpServerSsePlugin) << "Queued request for session" << session;
+        } else {
+            qCDebug(lcQMcpServerSsePlugin) << "Not queuing notification (no response expected)";
+        }
+
+        emit received(session, jsonObj);
     } else {
         qWarning() << "Error parsing /mcp request:" << error.errorString();
         qWarning() << body;
