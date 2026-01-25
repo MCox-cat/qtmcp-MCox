@@ -285,6 +285,41 @@ QByteArray HttpServer::deleteMcp(const QNetworkRequest &request)
     return QByteArray();
 }
 
+QByteArray HttpServer::optionsMcp(const QNetworkRequest &request)
+{
+    qCDebug(lcQMcpServerSsePlugin) << "/mcp OPTIONS received";
+
+    // OPTIONS requests are used for CORS preflight checks and capability discovery
+    // Get the socket for this request
+    QTcpSocket *socket = getSocketForRequest(request);
+    if (!socket) {
+        qWarning() << "No socket found for OPTIONS /mcp request";
+        return QByteArray();
+    }
+
+    // Create a temporary session to register the socket and prevent automatic HTTP wrapper
+    QUuid tempSession = QUuid::createUuid();
+    registerSession(tempSession, request);
+
+    // Send 200 OK response with allowed methods
+    QByteArray response = QByteArrayLiteral("HTTP/1.1 200 OK\r\n")
+                          + "Access-Control-Allow-Origin: *\r\n"
+                          + "Access-Control-Allow-Methods: GET, POST, DELETE, OPTIONS\r\n"
+                          + "Access-Control-Allow-Headers: Content-Type, Mcp-Session-Id\r\n"
+                          + "Access-Control-Max-Age: 86400\r\n"
+                          + "Content-Length: 0\r\n"
+                          + "Connection: keep-alive\r\n"
+                          + "\r\n";
+
+    socket->write(response);
+    socket->flush();
+
+    qCDebug(lcQMcpServerSsePlugin) << "Sent OPTIONS response";
+
+    // Return empty since we already sent the response
+    return QByteArray();
+}
+
 QByteArray HttpServer::postMcp(const QNetworkRequest &request, const QByteArray &body)
 {
     // New Streamable HTTP protocol endpoint
