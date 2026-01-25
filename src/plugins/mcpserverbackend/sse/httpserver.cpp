@@ -230,6 +230,28 @@ QByteArray HttpServer::getMcp(const QNetworkRequest &request)
 
     qCDebug(lcQMcpServerSsePlugin) << "GET for session:" << session;
 
+    // Check if session exists (was created and not deleted)
+    if (!d->sessionUsesNewProtocol.contains(session)) {
+        qWarning() << "GET request for unknown/deleted session:" << session;
+
+        // Per MCP spec: session doesn't exist returns 404 Not Found
+        QTcpSocket *socket = getSocketForRequest(request);
+        if (socket) {
+            QUuid tempSession = QUuid::createUuid();
+            registerSession(tempSession, request);
+
+            QByteArray response = QByteArrayLiteral("HTTP/1.1 404 Not Found\r\n")
+                                  + "Content-Type: text/plain\r\n"
+                                  + "Content-Length: 22\r\n"
+                                  + "Connection: keep-alive\r\n"
+                                  + "\r\n"
+                                  + "Session does not exist";
+            socket->write(response);
+            socket->flush();
+        }
+        return QByteArray();
+    }
+
     // Get the socket for this request
     QTcpSocket *socket = getSocketForRequest(request);
     if (!socket) {
@@ -472,6 +494,28 @@ QByteArray HttpServer::postMcp(const QNetworkRequest &request, const QByteArray 
             // Per MCP spec: invalid session ID returns 404 Not Found
             qWarning() << "Invalid Mcp-Session-Id header:" << sessionIdHeader;
 
+            QTcpSocket *socket = getSocketForRequest(request);
+            if (socket) {
+                QUuid tempSession = QUuid::createUuid();
+                registerSession(tempSession, request);
+
+                QByteArray response = QByteArrayLiteral("HTTP/1.1 404 Not Found\r\n")
+                                      + "Content-Type: text/plain\r\n"
+                                      + "Content-Length: 22\r\n"
+                                      + "Connection: keep-alive\r\n"
+                                      + "\r\n"
+                                      + "Session does not exist";
+                socket->write(response);
+                socket->flush();
+            }
+            return QByteArray();
+        }
+
+        // Check if session exists (was created and not deleted)
+        if (!d->sessionUsesNewProtocol.contains(session)) {
+            qWarning() << "POST request for unknown/deleted session:" << session;
+
+            // Per MCP spec: session doesn't exist returns 404 Not Found
             QTcpSocket *socket = getSocketForRequest(request);
             if (socket) {
                 QUuid tempSession = QUuid::createUuid();
