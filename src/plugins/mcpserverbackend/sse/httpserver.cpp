@@ -538,7 +538,7 @@ QByteArray HttpServer::postMcp(const QNetworkRequest &request, const QByteArray 
     qCDebug(lcQMcpServerSsePlugin) << "/mcp: forwarding to session" << session << "method:" << method;
 
     // Only queue requests that expect a response (have an "id" field)
-    // Notifications don't have an id and don't get responses
+    // Notifications don't have an id and don't get JSON-RPC responses
     if (jsonObj.contains("id")) {
         // Queue this request for async response
         Private::PendingRequest pending;
@@ -547,12 +547,19 @@ QByteArray HttpServer::postMcp(const QNetworkRequest &request, const QByteArray 
         d->pendingRequests.append(pending);
         qCDebug(lcQMcpServerSsePlugin) << "Queued request for session" << session;
     } else {
-        qCDebug(lcQMcpServerSsePlugin) << "Not queuing notification (no response expected)";
+        // Per MCP spec: notifications receive HTTP 202 Accepted with no body
+        qCDebug(lcQMcpServerSsePlugin) << "Notification received, sending 202 Accepted";
+        QByteArray response = QByteArrayLiteral("HTTP/1.1 202 Accepted\r\n")
+                              + "Content-Length: 0\r\n"
+                              + "Connection: keep-alive\r\n"
+                              + "\r\n";
+        socket->write(response);
+        socket->flush();
     }
 
     emit received(session, jsonObj);
 
-    // Return empty - response will be sent asynchronously via sendWithHeader
+    // Return empty - responses are sent directly or asynchronously
     // Socket is registered as a session, so this won't be wrapped in HTTP response
     return QByteArray();
 }
