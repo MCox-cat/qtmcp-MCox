@@ -277,7 +277,7 @@ QByteArray HttpServer::deleteMcp(const QNetworkRequest &request)
 
             QByteArray response = QByteArrayLiteral("HTTP/1.1 400 Bad Request\r\n")
                                   + "Content-Type: text/plain\r\n"
-                                  + "Content-Length: 27\r\n"
+                                  + "Content-Length: 26\r\n"
                                   + "Connection: keep-alive\r\n"
                                   + "\r\n"
                                   + "Mcp-Session-Id is required";
@@ -499,7 +499,7 @@ QByteArray HttpServer::postMcp(const QNetworkRequest &request, const QByteArray 
 
             QByteArray response = QByteArrayLiteral("HTTP/1.1 400 Bad Request\r\n")
                                   + "Content-Type: text/plain\r\n"
-                                  + "Content-Length: 27\r\n"
+                                  + "Content-Length: 26\r\n"
                                   + "Connection: keep-alive\r\n"
                                   + "\r\n"
                                   + "Mcp-Session-Id is required";
