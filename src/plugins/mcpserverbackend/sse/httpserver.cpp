@@ -184,6 +184,19 @@ QByteArray HttpServer::getMcp(const QNetworkRequest &request)
     // Extract session ID from header
     if (!request.hasRawHeader("Mcp-Session-Id")) {
         qWarning() << "GET /mcp without Mcp-Session-Id header";
+
+        // Send 400 Bad Request with keep-alive
+        QTcpSocket *socket = getSocketForRequest(request);
+        if (socket) {
+            QByteArray response = QByteArrayLiteral("HTTP/1.1 400 Bad Request\r\n")
+                                  + "Content-Type: text/plain\r\n"
+                                  + "Content-Length: 27\r\n"
+                                  + "Connection: keep-alive\r\n"
+                                  + "\r\n"
+                                  + "Mcp-Session-Id is required";
+            socket->write(response);
+            socket->flush();
+        }
         return QByteArray();
     }
 
@@ -192,6 +205,19 @@ QByteArray HttpServer::getMcp(const QNetworkRequest &request)
 
     if (session.isNull()) {
         qWarning() << "Invalid Mcp-Session-Id in GET:" << sessionIdHeader;
+
+        // Send 400 Bad Request with keep-alive
+        QTcpSocket *socket = getSocketForRequest(request);
+        if (socket) {
+            QByteArray response = QByteArrayLiteral("HTTP/1.1 400 Bad Request\r\n")
+                                  + "Content-Type: text/plain\r\n"
+                                  + "Content-Length: 24\r\n"
+                                  + "Connection: keep-alive\r\n"
+                                  + "\r\n"
+                                  + "Invalid Mcp-Session-Id";
+            socket->write(response);
+            socket->flush();
+        }
         return QByteArray();
     }
 
@@ -201,6 +227,7 @@ QByteArray HttpServer::getMcp(const QNetworkRequest &request)
     QTcpSocket *socket = getSocketForRequest(request);
     if (!socket) {
         qWarning() << "No socket found for GET /mcp request";
+        // Can't send response without socket
         return QByteArray();
     }
 
@@ -233,6 +260,19 @@ QByteArray HttpServer::deleteMcp(const QNetworkRequest &request)
     // Extract session ID from header
     if (!request.hasRawHeader("Mcp-Session-Id")) {
         qWarning() << "DELETE /mcp without Mcp-Session-Id header";
+
+        // Send 400 Bad Request with keep-alive
+        QTcpSocket *socket = getSocketForRequest(request);
+        if (socket) {
+            QByteArray response = QByteArrayLiteral("HTTP/1.1 400 Bad Request\r\n")
+                                  + "Content-Type: text/plain\r\n"
+                                  + "Content-Length: 27\r\n"
+                                  + "Connection: keep-alive\r\n"
+                                  + "\r\n"
+                                  + "Mcp-Session-Id is required";
+            socket->write(response);
+            socket->flush();
+        }
         return QByteArray();
     }
 
@@ -241,6 +281,19 @@ QByteArray HttpServer::deleteMcp(const QNetworkRequest &request)
 
     if (session.isNull()) {
         qWarning() << "Invalid Mcp-Session-Id in DELETE:" << sessionIdHeader;
+
+        // Send 400 Bad Request with keep-alive
+        QTcpSocket *socket = getSocketForRequest(request);
+        if (socket) {
+            QByteArray response = QByteArrayLiteral("HTTP/1.1 400 Bad Request\r\n")
+                                  + "Content-Type: text/plain\r\n"
+                                  + "Content-Length: 24\r\n"
+                                  + "Connection: keep-alive\r\n"
+                                  + "\r\n"
+                                  + "Invalid Mcp-Session-Id";
+            socket->write(response);
+            socket->flush();
+        }
         return QByteArray();
     }
 
@@ -250,6 +303,7 @@ QByteArray HttpServer::deleteMcp(const QNetworkRequest &request)
     QTcpSocket *socket = getSocketForRequest(request);
     if (!socket) {
         qWarning() << "No socket found for DELETE /mcp request";
+        // Can't send response without socket
         return QByteArray();
     }
 
