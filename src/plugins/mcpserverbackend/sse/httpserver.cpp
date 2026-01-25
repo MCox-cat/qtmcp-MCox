@@ -185,15 +185,14 @@ QByteArray HttpServer::getMcp(const QNetworkRequest &request)
     if (!request.hasRawHeader("Mcp-Session-Id")) {
         qWarning() << "GET /mcp without Mcp-Session-Id header";
 
-        // Send 400 Bad Request with keep-alive
+        // Send 200 OK with keep-alive for connectivity test
         QTcpSocket *socket = getSocketForRequest(request);
         if (socket) {
-            QByteArray response = QByteArrayLiteral("HTTP/1.1 400 Bad Request\r\n")
+            QByteArray response = QByteArrayLiteral("HTTP/1.1 200 OK\r\n")
                                   + "Content-Type: text/plain\r\n"
-                                  + "Content-Length: 27\r\n"
+                                  + "Content-Length: 0\r\n"
                                   + "Connection: keep-alive\r\n"
-                                  + "\r\n"
-                                  + "Mcp-Session-Id is required";
+                                  + "\r\n";
             socket->write(response);
             socket->flush();
         }
@@ -206,15 +205,14 @@ QByteArray HttpServer::getMcp(const QNetworkRequest &request)
     if (session.isNull()) {
         qWarning() << "Invalid Mcp-Session-Id in GET:" << sessionIdHeader;
 
-        // Send 400 Bad Request with keep-alive
+        // Send 200 OK with keep-alive for connectivity test
         QTcpSocket *socket = getSocketForRequest(request);
         if (socket) {
-            QByteArray response = QByteArrayLiteral("HTTP/1.1 400 Bad Request\r\n")
+            QByteArray response = QByteArrayLiteral("HTTP/1.1 200 OK\r\n")
                                   + "Content-Type: text/plain\r\n"
-                                  + "Content-Length: 24\r\n"
+                                  + "Content-Length: 0\r\n"
                                   + "Connection: keep-alive\r\n"
-                                  + "\r\n"
-                                  + "Invalid Mcp-Session-Id";
+                                  + "\r\n";
             socket->write(response);
             socket->flush();
         }
