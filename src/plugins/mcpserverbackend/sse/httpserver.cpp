@@ -184,22 +184,6 @@ QByteArray HttpServer::getMcp(const QNetworkRequest &request)
     // Extract session ID from header
     if (!request.hasRawHeader("Mcp-Session-Id")) {
         qWarning() << "GET /mcp without Mcp-Session-Id header";
-
-        // Send 200 OK with keep-alive for connectivity test
-        QTcpSocket *socket = getSocketForRequest(request);
-        if (socket) {
-            // Create a temporary session to register the socket and prevent automatic HTTP wrapper
-            QUuid tempSession = QUuid::createUuid();
-            registerSession(tempSession, request);
-
-            QByteArray response = QByteArrayLiteral("HTTP/1.1 200 OK\r\n")
-                                  + "Content-Type: text/plain\r\n"
-                                  + "Content-Length: 0\r\n"
-                                  + "Connection: keep-alive\r\n"
-                                  + "\r\n";
-            socket->write(response);
-            socket->flush();
-        }
         return QByteArray();
     }
 
@@ -208,55 +192,15 @@ QByteArray HttpServer::getMcp(const QNetworkRequest &request)
 
     if (session.isNull()) {
         qWarning() << "Invalid Mcp-Session-Id in GET:" << sessionIdHeader;
-
-        // Per MCP spec: invalid session ID returns 404 Not Found
-        QTcpSocket *socket = getSocketForRequest(request);
-        if (socket) {
-            // Create a temporary session to register the socket and prevent automatic HTTP wrapper
-            QUuid tempSession = QUuid::createUuid();
-            registerSession(tempSession, request);
-
-            QByteArray response = QByteArrayLiteral("HTTP/1.1 404 Not Found\r\n")
-                                  + "Content-Type: text/plain\r\n"
-                                  + "Content-Length: 22\r\n"
-                                  + "Connection: keep-alive\r\n"
-                                  + "\r\n"
-                                  + "Session does not exist";
-            socket->write(response);
-            socket->flush();
-        }
         return QByteArray();
     }
 
     qCDebug(lcQMcpServerSsePlugin) << "GET for session:" << session;
 
-    // Check if session exists (was created and not deleted)
-    if (!d->sessionUsesNewProtocol.contains(session)) {
-        qWarning() << "GET request for unknown/deleted session:" << session;
-
-        // Per MCP spec: session doesn't exist returns 404 Not Found
-        QTcpSocket *socket = getSocketForRequest(request);
-        if (socket) {
-            QUuid tempSession = QUuid::createUuid();
-            registerSession(tempSession, request);
-
-            QByteArray response = QByteArrayLiteral("HTTP/1.1 404 Not Found\r\n")
-                                  + "Content-Type: text/plain\r\n"
-                                  + "Content-Length: 22\r\n"
-                                  + "Connection: keep-alive\r\n"
-                                  + "\r\n"
-                                  + "Session does not exist";
-            socket->write(response);
-            socket->flush();
-        }
-        return QByteArray();
-    }
-
     // Get the socket for this request
     QTcpSocket *socket = getSocketForRequest(request);
     if (!socket) {
         qWarning() << "No socket found for GET /mcp request";
-        // Can't send response without socket
         return QByteArray();
     }
 
@@ -289,23 +233,6 @@ QByteArray HttpServer::deleteMcp(const QNetworkRequest &request)
     // Extract session ID from header
     if (!request.hasRawHeader("Mcp-Session-Id")) {
         qWarning() << "DELETE /mcp without Mcp-Session-Id header";
-
-        // Send 400 Bad Request with keep-alive
-        QTcpSocket *socket = getSocketForRequest(request);
-        if (socket) {
-            // Create a temporary session to register the socket and prevent automatic HTTP wrapper
-            QUuid tempSession = QUuid::createUuid();
-            registerSession(tempSession, request);
-
-            QByteArray response = QByteArrayLiteral("HTTP/1.1 400 Bad Request\r\n")
-                                  + "Content-Type: text/plain\r\n"
-                                  + "Content-Length: 26\r\n"
-                                  + "Connection: keep-alive\r\n"
-                                  + "\r\n"
-                                  + "Mcp-Session-Id is required";
-            socket->write(response);
-            socket->flush();
-        }
         return QByteArray();
     }
 
@@ -314,23 +241,6 @@ QByteArray HttpServer::deleteMcp(const QNetworkRequest &request)
 
     if (session.isNull()) {
         qWarning() << "Invalid Mcp-Session-Id in DELETE:" << sessionIdHeader;
-
-        // Per MCP spec: invalid session ID returns 404 Not Found
-        QTcpSocket *socket = getSocketForRequest(request);
-        if (socket) {
-            // Create a temporary session to register the socket and prevent automatic HTTP wrapper
-            QUuid tempSession = QUuid::createUuid();
-            registerSession(tempSession, request);
-
-            QByteArray response = QByteArrayLiteral("HTTP/1.1 404 Not Found\r\n")
-                                  + "Content-Type: text/plain\r\n"
-                                  + "Content-Length: 22\r\n"
-                                  + "Connection: keep-alive\r\n"
-                                  + "\r\n"
-                                  + "Session does not exist";
-            socket->write(response);
-            socket->flush();
-        }
         return QByteArray();
     }
 
@@ -340,7 +250,6 @@ QByteArray HttpServer::deleteMcp(const QNetworkRequest &request)
     QTcpSocket *socket = getSocketForRequest(request);
     if (!socket) {
         qWarning() << "No socket found for DELETE /mcp request";
-        // Can't send response without socket
         return QByteArray();
     }
 
@@ -376,110 +285,10 @@ QByteArray HttpServer::deleteMcp(const QNetworkRequest &request)
     return QByteArray();
 }
 
-QByteArray HttpServer::optionsMcp(const QNetworkRequest &request)
-{
-    qCDebug(lcQMcpServerSsePlugin) << "/mcp OPTIONS received";
-
-    // OPTIONS requests are used for CORS preflight checks and capability discovery
-    // Get the socket for this request
-    QTcpSocket *socket = getSocketForRequest(request);
-    if (!socket) {
-        qWarning() << "No socket found for OPTIONS /mcp request";
-        return QByteArray();
-    }
-
-    // Create a temporary session to register the socket and prevent automatic HTTP wrapper
-    QUuid tempSession = QUuid::createUuid();
-    registerSession(tempSession, request);
-
-    // Send 200 OK response with allowed methods
-    QByteArray response = QByteArrayLiteral("HTTP/1.1 200 OK\r\n")
-                          + "Access-Control-Allow-Origin: *\r\n"
-                          + "Access-Control-Allow-Methods: GET, POST, DELETE, OPTIONS\r\n"
-                          + "Access-Control-Allow-Headers: Content-Type, Mcp-Session-Id\r\n"
-                          + "Access-Control-Max-Age: 86400\r\n"
-                          + "Content-Length: 0\r\n"
-                          + "Connection: keep-alive\r\n"
-                          + "\r\n";
-
-    socket->write(response);
-    socket->flush();
-
-    qCDebug(lcQMcpServerSsePlugin) << "Sent OPTIONS response";
-
-    // Return empty since we already sent the response
-    return QByteArray();
-}
-
-QByteArray HttpServer::optionsMessages(const QNetworkRequest &request)
-{
-    qCDebug(lcQMcpServerSsePlugin) << "/messages OPTIONS received";
-
-    // OPTIONS requests are used for CORS preflight checks and capability discovery
-    // Get the socket for this request
-    QTcpSocket *socket = getSocketForRequest(request);
-    if (!socket) {
-        qWarning() << "No socket found for OPTIONS /messages request";
-        return QByteArray();
-    }
-
-    // Create a temporary session to register the socket and prevent automatic HTTP wrapper
-    QUuid tempSession = QUuid::createUuid();
-    registerSession(tempSession, request);
-
-    // Send 200 OK response with allowed methods
-    QByteArray response = QByteArrayLiteral("HTTP/1.1 200 OK\r\n")
-                          + "Access-Control-Allow-Origin: *\r\n"
-                          + "Access-Control-Allow-Methods: POST, OPTIONS\r\n"
-                          + "Access-Control-Allow-Headers: Content-Type, Mcp-Session-Id\r\n"
-                          + "Access-Control-Max-Age: 86400\r\n"
-                          + "Content-Length: 0\r\n"
-                          + "Connection: keep-alive\r\n"
-                          + "\r\n";
-
-    socket->write(response);
-    socket->flush();
-
-    qCDebug(lcQMcpServerSsePlugin) << "Sent OPTIONS response for /messages";
-
-    // Return empty since we already sent the response
-    return QByteArray();
-}
-
 QByteArray HttpServer::postMcp(const QNetworkRequest &request, const QByteArray &body)
 {
     // New Streamable HTTP protocol endpoint
     qCDebug(lcQMcpServerSsePlugin) << "/mcp POST received";
-
-    // Parse JSON first to check if this is an initialize request
-    QJsonParseError error;
-    QJsonDocument doc = QJsonDocument::fromJson(body, &error);
-    if (error.error != QJsonParseError::NoError || !doc.isObject()) {
-        qWarning() << "Error parsing /mcp request:" << error.errorString();
-        qWarning() << body;
-
-        // Get socket and send error response
-        QTcpSocket *socket = getSocketForRequest(request);
-        if (socket) {
-            QUuid tempSession = QUuid::createUuid();
-            registerSession(tempSession, request);
-
-            QByteArray errorJson = QByteArrayLiteral("{\"error\":\"Invalid JSON\"}");
-            QByteArray response = QByteArrayLiteral("HTTP/1.1 400 Bad Request\r\n")
-                                  + "Content-Type: application/json\r\n"
-                                  + "Content-Length: " + QByteArray::number(errorJson.size()) + "\r\n"
-                                  + "Connection: close\r\n"
-                                  + "\r\n"
-                                  + errorJson;
-            socket->write(response);
-            socket->flush();
-        }
-        return QByteArray();
-    }
-
-    auto jsonObj = doc.object();
-    QString method = jsonObj.value("method").toString();
-    bool isInitialize = (method == "initialize");
 
     QUuid session;
     bool isNewSession = false;
@@ -488,76 +297,20 @@ QByteArray HttpServer::postMcp(const QNetworkRequest &request, const QByteArray 
     if (request.hasRawHeader("Mcp-Session-Id")) {
         const QByteArray sessionIdHeader = request.rawHeader("Mcp-Session-Id");
         session = QUuid::fromString(QString::fromUtf8(sessionIdHeader));
-        qCDebug(lcQMcpServerSsePlugin) << "Using session from header:" << session;
+        qCDebug(lcQMcpServerSsePlugin) << "Using existing session from header:" << session;
 
         if (session.isNull()) {
-            // Per MCP spec: invalid session ID returns 404 Not Found
             qWarning() << "Invalid Mcp-Session-Id header:" << sessionIdHeader;
-
-            QTcpSocket *socket = getSocketForRequest(request);
-            if (socket) {
-                QUuid tempSession = QUuid::createUuid();
-                registerSession(tempSession, request);
-
-                QByteArray response = QByteArrayLiteral("HTTP/1.1 404 Not Found\r\n")
-                                      + "Content-Type: text/plain\r\n"
-                                      + "Content-Length: 22\r\n"
-                                      + "Connection: keep-alive\r\n"
-                                      + "\r\n"
-                                      + "Session does not exist";
-                socket->write(response);
-                socket->flush();
-            }
-            return QByteArray();
+            // Create new session as fallback
+            session = QUuid::createUuid();
+            isNewSession = true;
         }
-
-        // Check if session exists (was created and not deleted)
-        if (!d->sessionUsesNewProtocol.contains(session)) {
-            qWarning() << "POST request for unknown/deleted session:" << session;
-
-            // Per MCP spec: session doesn't exist returns 404 Not Found
-            QTcpSocket *socket = getSocketForRequest(request);
-            if (socket) {
-                QUuid tempSession = QUuid::createUuid();
-                registerSession(tempSession, request);
-
-                QByteArray response = QByteArrayLiteral("HTTP/1.1 404 Not Found\r\n")
-                                      + "Content-Type: text/plain\r\n"
-                                      + "Content-Length: 22\r\n"
-                                      + "Connection: keep-alive\r\n"
-                                      + "\r\n"
-                                      + "Session does not exist";
-                socket->write(response);
-                socket->flush();
-            }
-            return QByteArray();
-        }
-    } else if (!isInitialize) {
-        // Per MCP spec: POST without session ID after initialization returns 400 Bad Request
-        qWarning() << "POST /mcp without Mcp-Session-Id header (method:" << method << ")";
-
-        QTcpSocket *socket = getSocketForRequest(request);
-        if (socket) {
-            QUuid tempSession = QUuid::createUuid();
-            registerSession(tempSession, request);
-
-            QByteArray response = QByteArrayLiteral("HTTP/1.1 400 Bad Request\r\n")
-                                  + "Content-Type: text/plain\r\n"
-                                  + "Content-Length: 26\r\n"
-                                  + "Connection: keep-alive\r\n"
-                                  + "\r\n"
-                                  + "Mcp-Session-Id is required";
-            socket->write(response);
-            socket->flush();
-        }
-        return QByteArray();
     }
 
     if (session.isNull()) {
-        // Initialize request without session - create new session
+        // Create a new session for the new protocol
         session = QUuid::createUuid();
         isNewSession = true;
-        qCDebug(lcQMcpServerSsePlugin) << "Created new session for initialize:" << session;
     }
 
     // Get the socket for this request
@@ -575,35 +328,56 @@ QByteArray HttpServer::postMcp(const QNetworkRequest &request, const QByteArray 
     d->sessionUsesNewProtocol.insert(session, true);
 
     if (isNewSession) {
+        qCDebug(lcQMcpServerSsePlugin) << "Created new protocol session:" << session;
         emit newSession(session);
     }
 
-    // Forward the request
-    qCDebug(lcQMcpServerSsePlugin) << "/mcp: forwarding to session" << session << "method:" << method;
+    // Parse and forward the request
+    QJsonParseError error;
+    QJsonDocument doc = QJsonDocument::fromJson(body, &error);
+    if (error.error == QJsonParseError::NoError && doc.isObject()) {
+        auto jsonObj = doc.object();
+        qCDebug(lcQMcpServerSsePlugin) << "/mcp: forwarding to session" << session << "method:" << jsonObj.value("method").toString();
 
-    // Only queue requests that expect a response (have an "id" field)
-    // Notifications don't have an id and don't get JSON-RPC responses
-    if (jsonObj.contains("id")) {
-        // Queue this request for async response
-        Private::PendingRequest pending;
-        pending.socket = socket;
-        pending.sessionId = session;
-        d->pendingRequests.append(pending);
-        qCDebug(lcQMcpServerSsePlugin) << "Queued request for session" << session;
+        // Only queue requests that expect a response (have an "id" field)
+        // Notifications don't have an id and don't get responses
+        if (jsonObj.contains("id")) {
+            // Queue this request for async response
+            Private::PendingRequest pending;
+            pending.socket = socket;
+            pending.sessionId = session;
+            d->pendingRequests.append(pending);
+            qCDebug(lcQMcpServerSsePlugin) << "Queued request for session" << session;
+        } else {
+            qCDebug(lcQMcpServerSsePlugin) << "Not queuing notification (no response expected)";
+        }
+
+        emit received(session, jsonObj);
     } else {
-        // Per MCP spec: notifications receive HTTP 202 Accepted with no body
-        qCDebug(lcQMcpServerSsePlugin) << "Notification received, sending 202 Accepted";
-        QByteArray response = QByteArrayLiteral("HTTP/1.1 202 Accepted\r\n")
-                              + "Content-Length: 0\r\n"
-                              + "Connection: keep-alive\r\n"
-                              + "\r\n";
+        qWarning() << "Error parsing /mcp request:" << error.errorString();
+        qWarning() << body;
+
+        // Remove from pending and send error response immediately
+        for (int i = 0; i < d->pendingRequests.size(); ++i) {
+            if (d->pendingRequests[i].sessionId == session) {
+                d->pendingRequests.removeAt(i);
+                break;
+            }
+        }
+
+        QByteArray errorJson = QByteArrayLiteral("{\"error\":\"Invalid JSON\"}");
+        QByteArray response = QByteArrayLiteral("HTTP/1.1 400 Bad Request\r\n")
+                              + "Content-Type: application/json\r\n"
+                              + "Content-Length: " + QByteArray::number(errorJson.size()) + "\r\n"
+                              + "Connection: close\r\n"
+                              + "\r\n"
+                              + errorJson;
         socket->write(response);
         socket->flush();
+        return QByteArray();  // Return empty since we handled the response
     }
 
-    emit received(session, jsonObj);
-
-    // Return empty - responses are sent directly or asynchronously
+    // Return empty - response will be sent asynchronously via sendWithHeader
     // Socket is registered as a session, so this won't be wrapped in HTTP response
     return QByteArray();
 }

@@ -172,6 +172,8 @@ public:
      */
     QList<QMcpRoot> roots(QString *cursor = nullptr) const;
 
+    using DynamicToolHandler = std::function<QList<QMcpCallToolResultContent>(const QJsonObject &params)>;
+
 public slots:
     /*!
         Appends a resource template to the session.
@@ -214,12 +216,17 @@ public slots:
     void subscribe(const QUrl &uri);
     void unsubscribe(const QUrl &uri);
 
+    // Static tool registration (existing - uses Q_INVOKABLE)
     void registerToolSet(QObject *toolSet, const QHash<QString, QString> &descriptions = {});
     void unregisterToolSet(const QObject *toolSet);
 #ifdef QT_GUI_LIB
     void registerTool(QAction *action, const QString &name);
     void unregisterTool(const QAction *action);
 #endif
+
+    // Dynamic tool registration (NEW - uses runtime handlers)
+    void registerDynamicTool(const QMcpTool &tool, DynamicToolHandler handler);
+    void unregisterDynamicTool(const QString &name);
 
     void setRoots(const QList<QMcpRoot> &roots);
 

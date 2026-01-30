@@ -31,6 +31,7 @@ public:
 #ifdef QT_GUI_LIB
     QList<QPair<QMcpTool, QAction *>> actions;
 #endif
+    QList<QPair<QMcpTool, QMcpServerSession::DynamicToolHandler>> dynamicTools;  // NEW: Runtime-registered tools
     QList<QMcpRoot> roots;
     QMultiHash<QUrl, QUrl> subscriptions;
 
@@ -381,6 +382,25 @@ void QMcpServerSession::unregisterTool(const QAction *action)
 }
 #endif
 
+void QMcpServerSession::registerDynamicTool(const QMcpTool &tool, DynamicToolHandler handler)
+{
+    d->dynamicTools.append(std::make_pair(tool, handler));
+    d->notifyToolListChanged.start();
+}
+
+void QMcpServerSession::unregisterDynamicTool(const QString &name)
+{
+    bool changed = false;
+    for (int i = d->dynamicTools.length() - 1; i >= 0; i--) {
+        if (d->dynamicTools.at(i).first.name() == name) {
+            d->dynamicTools.removeAt(i);
+            changed = true;
+        }
+    }
+    if (changed)
+        d->notifyToolListChanged.start();
+}
+
 namespace {
 template<class T>
 T callMethod(QObject *object, const QMetaMethod *method, const QVariantList &args)
@@ -425,12 +445,16 @@ QList<QMcpTool> QMcpServerSession::tools(QString *cursor) const
 {
     Q_UNUSED(cursor);
     QList<QMcpTool> ret;
+    // Add static tools (Q_INVOKABLE)
     for (const auto &pair : std::as_const(d->tools))
         ret.append(pair.first);
 #ifdef QT_GUI_LIB
     for (const auto &pair : std::as_const(d->actions))
         ret.append(pair.first);
 #endif
+    // Add dynamic tools (runtime-registered)
+    for (const auto &pair : std::as_const(d->dynamicTools))
+        ret.append(pair.first);
     std::sort(ret.begin(), ret.end(), [](const QMcpTool &tool1, const QMcpTool &tool2) {
         return tool1.name() < tool2.name();
     });
@@ -441,6 +465,23 @@ QList<QMcpCallToolResultContent> QMcpServerSession::callTool(const QString &name
 {
     bool found = false;
     QList<QMcpCallToolResultContent> ret;
+
+    // Check dynamic tools FIRST (runtime-registered with handlers)
+    for (const auto &pair : std::as_const(d->dynamicTools)) {
+        const auto &tool = pair.first;
+        const auto &handler = pair.second;
+
+        if (tool.name() == name) {
+            // Call the dynamic handler
+            ret = handler(params);
+            found = true;
+            if (ok)
+                *ok = true;
+            return ret;
+        }
+    }
+
+    // Then check static tools (Q_INVOKABLE methods)
     for (const auto &pair : std::as_const(d->tools)) {
         const auto tool = pair.first;
         // check name first

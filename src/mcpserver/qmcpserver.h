@@ -348,6 +348,8 @@ public:
 
     QList<QMcpServerSession *> sessions() const;
 
+    using DynamicToolHandler = QMcpServerSession::DynamicToolHandler;
+
 public slots:
     /*!
         Sets the server capabilities.
@@ -383,12 +385,17 @@ public slots:
     */
     void start(const QString &args = QString());
 
+    // Static tool registration (existing - uses Q_INVOKABLE)
     void registerToolSet(QObject *toolSet, const QHash<QString, QString> &descriptions = {});
     void unregisterToolSet(QObject *toolSet);
 #ifdef QT_GUI_LIB
     void registerTool(QAction *action, const QString &name = QString());
     void unregisterTool(QAction *action);
 #endif
+
+    // Dynamic tool registration (NEW - uses runtime handlers, propagates to all sessions)
+    void registerDynamicTool(const QMcpTool &tool, DynamicToolHandler handler);
+    void unregisterDynamicTool(const QString &name);
 
 signals:
     /*!

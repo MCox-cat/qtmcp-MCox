@@ -39,6 +39,7 @@ public:
 #ifdef QT_GUI_LIB
     QHash<QAction *, QString> actions;
 #endif
+    QList<QPair<QMcpTool, QMcpServer::DynamicToolHandler>> dynamicTools;  // NEW: Runtime-registered tools
 };
 
 QMcpServer::Private::Private(const QString &type, QMcpServer *parent)
@@ -79,6 +80,9 @@ QMcpServer::Private::Private(const QString &type, QMcpServer *parent)
         for (auto i = actions.cbegin(), end = actions.cend(); i != end; ++i)
             session->registerTool(i.key(), i.value());
 #endif
+        // register dynamic tools
+        for (const auto &pair : std::as_const(dynamicTools))
+            session->registerDynamicTool(pair.first, pair.second);
 
         sessions.insert(sessionId, session);
         connect(session, &QMcpServerSession::resourceUpdated, q, [this, session](const QMcpResource &resource) {
@@ -419,6 +423,30 @@ void QMcpServer::unregisterTool(QAction *action)
     d->actions.remove(action);
 }
 #endif
+
+void QMcpServer::registerDynamicTool(const QMcpTool &tool, DynamicToolHandler handler)
+{
+    d->dynamicTools.append(std::make_pair(tool, handler));
+    const auto sessions = d->sessions.values();
+    for (auto *session : sessions) {
+        session->registerDynamicTool(tool, handler);
+    }
+}
+
+void QMcpServer::unregisterDynamicTool(const QString &name)
+{
+    // Remove from stored list
+    for (int i = d->dynamicTools.length() - 1; i >= 0; i--) {
+        if (d->dynamicTools.at(i).first.name() == name) {
+            d->dynamicTools.removeAt(i);
+        }
+    }
+    // Remove from all sessions
+    const auto sessions = d->sessions.values();
+    for (auto *session : sessions) {
+        session->unregisterDynamicTool(name);
+    }
+}
 
 void QMcpServer::send(const QUuid &session, const QJsonObject &request, std::function<void(const QUuid &session, const QJsonObject &)> callback)
 {
