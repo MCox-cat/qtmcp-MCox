@@ -139,12 +139,12 @@ void QMcpAbstractHttpServer::Private::parseHttpRequest(QTcpSocket *socket)
         data.data = data.data.remove(0, prevLf + 2);
 
         // Log incoming request details
-        qDebug() << "[HTTP Server] ===== Incoming Request =====";
-        qDebug() << "[HTTP Server] Method:" << method;
-        qDebug() << "[HTTP Server] Path:" << path;
-        qDebug() << "[HTTP Server] Headers:";
+        qWarning() << "[HTTP Server] ===== Incoming Request =====";
+        qWarning() << "[HTTP Server] Method:" << method;
+        qWarning() << "[HTTP Server] Path:" << path;
+        qWarning() << "[HTTP Server] Headers:";
         for (int i = 0; i < headers.size(); ++i) {
-            qDebug() << "[HTTP Server]  " << headers.nameAt(i) << ":" << headers.valueAt(i);
+            qWarning() << "[HTTP Server]  " << headers.nameAt(i) << ":" << headers.valueAt(i);
         }
 
         QByteArray slotName = method.toLower();
@@ -169,9 +169,9 @@ void QMcpAbstractHttpServer::Private::parseHttpRequest(QTcpSocket *socket)
 
     // Log body if present
     if (!data.data.isEmpty()) {
-        qDebug() << "[HTTP Server] Body:" << data.data;
+        qWarning() << "[HTTP Server] Body:" << data.data;
     }
-    qDebug() << "[HTTP Server] =============================";
+    qWarning() << "[HTTP Server] =============================";
 
     if (data.indexOfMethod < 0) {
         qWarning() << "[HTTP Server] No handler found for request";
