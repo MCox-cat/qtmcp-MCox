@@ -138,6 +138,15 @@ void QMcpAbstractHttpServer::Private::parseHttpRequest(QTcpSocket *socket)
         data.request.setHeaders(headers);
         data.data = data.data.remove(0, prevLf + 2);
 
+        // Log incoming request details
+        qDebug() << "[HTTP Server] ===== Incoming Request =====";
+        qDebug() << "[HTTP Server] Method:" << method;
+        qDebug() << "[HTTP Server] Path:" << path;
+        qDebug() << "[HTTP Server] Headers:";
+        for (int i = 0; i < headers.size(); ++i) {
+            qDebug() << "[HTTP Server]  " << headers.nameAt(i) << ":" << headers.valueAt(i);
+        }
+
         QByteArray slotName = method.toLower();
         const auto pathElements = url.path().split("/"_L1, Qt::SkipEmptyParts);
         for (const auto &pe : pathElements) {
@@ -158,7 +167,14 @@ void QMcpAbstractHttpServer::Private::parseHttpRequest(QTcpSocket *socket)
         return;  // Wait for more data
     }
 
+    // Log body if present
+    if (!data.data.isEmpty()) {
+        qDebug() << "[HTTP Server] Body:" << data.data;
+    }
+    qDebug() << "[HTTP Server] =============================";
+
     if (data.indexOfMethod < 0) {
+        qWarning() << "[HTTP Server] No handler found for request";
         sendHttpResponse(socket, "Not Found"_ba, QStringLiteral("text/plain"), 404);
         return;
     }
