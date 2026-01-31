@@ -349,6 +349,8 @@ public:
     QList<QMcpServerSession *> sessions() const;
 
     using DynamicToolHandler = QMcpServerSession::DynamicToolHandler;
+    using DynamicResourceHandler = QMcpServerSession::DynamicResourceHandler;
+    using DynamicPromptHandler = QMcpServerSession::DynamicPromptHandler;
 
 public slots:
     /*!
@@ -396,6 +398,17 @@ public slots:
     // Dynamic tool registration (NEW - uses runtime handlers, propagates to all sessions)
     void registerDynamicTool(const QMcpTool &tool, DynamicToolHandler handler);
     void unregisterDynamicTool(const QString &name);
+
+    // Dynamic resource registration
+    void registerDynamicResourceTemplate(const QMcpResourceTemplate &resourceTemplate,
+                                          DynamicResourceHandler handler);
+    void registerDynamicResource(const QMcpResource &resource,
+                                  DynamicResourceHandler handler);
+    void unregisterDynamicResource(const QUrl &uri);
+
+    // Dynamic prompt registration
+    void registerDynamicPrompt(const QMcpPrompt &prompt, DynamicPromptHandler handler);
+    void unregisterDynamicPrompt(const QString &name);
 
 signals:
     /*!

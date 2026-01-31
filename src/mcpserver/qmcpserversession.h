@@ -144,9 +144,10 @@ public:
     /*!
         Returns the message history for a prompt.
         \param name Name of the prompt
+        \param arguments Optional arguments for the prompt (for dynamic prompts)
         \return List of prompt messages
      */
-    QList<QMcpPromptMessage> messages(const QString &name) const;
+    QList<QMcpPromptMessage> messages(const QString &name, const QJsonObject &arguments = QJsonObject()) const;
 
     // Tool management
     /*!
@@ -173,6 +174,9 @@ public:
     QList<QMcpRoot> roots(QString *cursor = nullptr) const;
 
     using DynamicToolHandler = std::function<QList<QMcpCallToolResultContent>(const QJsonObject &params)>;
+    using DynamicResourceHandler = std::function<QMcpReadResourceResultContents(const QUrl &uri)>;
+    using DynamicPromptHandler = std::function<QList<QMcpPromptMessage>(const QString &name,
+                                                                          const QJsonObject &arguments)>;
 
 public slots:
     /*!
@@ -227,6 +231,17 @@ public slots:
     // Dynamic tool registration (NEW - uses runtime handlers)
     void registerDynamicTool(const QMcpTool &tool, DynamicToolHandler handler);
     void unregisterDynamicTool(const QString &name);
+
+    // Dynamic resource registration
+    void registerDynamicResourceTemplate(const QMcpResourceTemplate &resourceTemplate,
+                                          DynamicResourceHandler handler);
+    void registerDynamicResource(const QMcpResource &resource,
+                                  DynamicResourceHandler handler);
+    void unregisterDynamicResource(const QUrl &uri);
+
+    // Dynamic prompt registration
+    void registerDynamicPrompt(const QMcpPrompt &prompt, DynamicPromptHandler handler);
+    void unregisterDynamicPrompt(const QString &name);
 
     void setRoots(const QList<QMcpRoot> &roots);
 
