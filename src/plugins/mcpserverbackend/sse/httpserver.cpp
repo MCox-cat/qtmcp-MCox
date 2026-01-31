@@ -393,7 +393,15 @@ QByteArray HttpServer::postMcp(const QNetworkRequest &request, const QByteArray 
             d->pendingRequests.append(pending);
             qCDebug(lcQMcpServerSsePlugin) << "Queued request for session" << session;
         } else {
-            qCDebug(lcQMcpServerSsePlugin) << "Not queuing notification (no response expected)";
+            // Notifications must receive HTTP 202 Accepted per MCP spec
+            qCDebug(lcQMcpServerSsePlugin) << "Notification received, sending 202 Accepted";
+            QByteArray response = QByteArrayLiteral("HTTP/1.1 202 Accepted\r\n")
+                                  + "Mcp-Session-Id: " + session.toByteArray(QUuid::WithoutBraces) + "\r\n"
+                                  + "Content-Length: 0\r\n"
+                                  + "Connection: keep-alive\r\n"
+                                  + "\r\n";
+            socket->write(response);
+            socket->flush();
         }
 
         emit received(session, jsonObj);
