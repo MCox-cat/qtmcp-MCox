@@ -259,6 +259,16 @@ QByteArray HttpServer::getMcp(const QNetworkRequest &request)
     return QByteArray();
 }
 
+QByteArray HttpServer::headMcp(const QNetworkRequest &request)
+{
+    qCDebug(lcQMcpServerSsePlugin) << "/mcp HEAD received";
+
+    // HEAD requests are used for connectivity testing
+    // Return empty body with 200 OK to indicate server is available
+    setResponseHeader("Mcp-Endpoint-Available", "true");
+    return QByteArray();
+}
+
 QByteArray HttpServer::deleteMcp(const QNetworkRequest &request)
 {
     qCDebug(lcQMcpServerSsePlugin) << "/mcp DELETE received";
