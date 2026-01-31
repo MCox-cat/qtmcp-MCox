@@ -180,7 +180,30 @@ QByteArray HttpServer::getMcp(const QNetworkRequest &request)
 {
     qCDebug(lcQMcpServerSsePlugin) << "/mcp GET received";
 
-    // GET requests are used to retrieve pending server-initiated messages
+    // Check if client is requesting SSE stream
+    bool wantsSSE = request.hasRawHeader("Accept") &&
+                    request.rawHeader("Accept").contains("text/event-stream");
+
+    // If client wants SSE but we don't support server-initiated messages yet,
+    // return 405 Method Not Allowed per spec
+    if (wantsSSE) {
+        qCDebug(lcQMcpServerSsePlugin) << "Client requested SSE stream, returning 405 (not yet implemented)";
+
+        QTcpSocket *socket = getSocketForRequest(request);
+        if (socket) {
+            QByteArray response = QByteArrayLiteral("HTTP/1.1 405 Method Not Allowed\r\n")
+                                  + "Content-Type: text/plain\r\n"
+                                  + "Content-Length: 53\r\n"
+                                  + "Connection: close\r\n"
+                                  + "\r\n"
+                                  + "Server-initiated SSE streams are not yet supported";
+            socket->write(response);
+            socket->flush();
+        }
+        return QByteArray();  // Return empty to prevent double-response
+    }
+
+    // GET requests without SSE are used for session establishment
     // Extract session ID from header, or create a new session if this is an initial connection
     QUuid session;
     bool isNewSession = false;
@@ -221,8 +244,7 @@ QByteArray HttpServer::getMcp(const QNetworkRequest &request)
         emit newSession(session);
     }
 
-    // For now, send 204 No Content immediately since we don't have server-initiated messages queued
-    // In a full implementation, this would long-poll and wait for server messages
+    // Send 204 No Content for non-SSE GET requests
     QByteArray response = QByteArrayLiteral("HTTP/1.1 204 No Content\r\n")
                           + "Mcp-Session-Id: " + session.toByteArray(QUuid::WithoutBraces) + "\r\n"
                           + "Connection: keep-alive\r\n"
