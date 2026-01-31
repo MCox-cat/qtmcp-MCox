@@ -181,21 +181,25 @@ QByteArray HttpServer::getMcp(const QNetworkRequest &request)
     qCDebug(lcQMcpServerSsePlugin) << "/mcp GET received";
 
     // GET requests are used to retrieve pending server-initiated messages
-    // Extract session ID from header
-    if (!request.hasRawHeader("Mcp-Session-Id")) {
-        qWarning() << "GET /mcp without Mcp-Session-Id header";
-        return QByteArray();
+    // Extract session ID from header, or create a new session if this is an initial connection
+    QUuid session;
+    bool isNewSession = false;
+
+    if (request.hasRawHeader("Mcp-Session-Id")) {
+        QByteArray sessionIdHeader = request.rawHeader("Mcp-Session-Id");
+        session = QUuid::fromString(QString::fromUtf8(sessionIdHeader));
+
+        if (session.isNull()) {
+            qWarning() << "Invalid Mcp-Session-Id in GET:" << sessionIdHeader;
+            return QByteArray();
+        }
+        qCDebug(lcQMcpServerSsePlugin) << "GET for existing session:" << session;
+    } else {
+        // Initial connection - create a new session
+        session = QUuid::createUuid();
+        isNewSession = true;
+        qCDebug(lcQMcpServerSsePlugin) << "GET without session ID - creating new session:" << session;
     }
-
-    QByteArray sessionIdHeader = request.rawHeader("Mcp-Session-Id");
-    QUuid session = QUuid::fromString(QString::fromUtf8(sessionIdHeader));
-
-    if (session.isNull()) {
-        qWarning() << "Invalid Mcp-Session-Id in GET:" << sessionIdHeader;
-        return QByteArray();
-    }
-
-    qCDebug(lcQMcpServerSsePlugin) << "GET for session:" << session;
 
     // Get the socket for this request
     QTcpSocket *socket = getSocketForRequest(request);
@@ -207,10 +211,18 @@ QByteArray HttpServer::getMcp(const QNetworkRequest &request)
     // Register this socket as a session to prevent automatic HTTP wrapper
     registerSession(session, request);
 
+    // Mark this session as using new protocol
+    d->sessionUsesNewProtocol.insert(session, true);
+    d->sessions.insert(session);
+
+    // Emit newSession signal for initial connections
+    if (isNewSession) {
+        qCDebug(lcQMcpServerSsePlugin) << "Emitting newSession for session:" << session;
+        emit newSession(session);
+    }
+
     // For now, send 204 No Content immediately since we don't have server-initiated messages queued
     // In a full implementation, this would long-poll and wait for server messages
-    setResponseHeader("Mcp-Session-Id", session.toByteArray(QUuid::WithoutBraces));
-
     QByteArray response = QByteArrayLiteral("HTTP/1.1 204 No Content\r\n")
                           + "Mcp-Session-Id: " + session.toByteArray(QUuid::WithoutBraces) + "\r\n"
                           + "Connection: keep-alive\r\n"
