@@ -45,6 +45,7 @@ public:
     struct DynamicResourceReg {
         QMcpResource resource;
         bool isTemplate;
+        QString templateString;  // Original template string (not URL-encoded)
         QMcpServer::DynamicResourceHandler handler;
     };
     QList<DynamicResourceReg> dynamicResources;
@@ -96,18 +97,18 @@ QMcpServer::Private::Private(const QString &type, QMcpServer *parent)
             session->registerDynamicTool(pair.first, pair.second);
 
         // register dynamic resources
-        for (auto it = dynamicResources.constBegin(); it != dynamicResources.constEnd(); ++it) {
-            if (it.value().isTemplate) {
+        for (const auto &entry : std::as_const(dynamicResources)) {
+            if (entry.isTemplate) {
                 QMcpResourceTemplate tmpl;
-                tmpl.setName(it.value().resource.name());
-                tmpl.setDescription(it.value().resource.description());
-                // Use the map key (original template string) instead of uri().toString()
+                tmpl.setName(entry.resource.name());
+                tmpl.setDescription(entry.resource.description());
+                // Use the stored template string instead of uri().toString()
                 // which would have {id} URL-encoded as %7Bid%7D
-                tmpl.setUriTemplate(it.key());
-                tmpl.setMimeType(it.value().resource.mimeType());
-                session->registerDynamicResourceTemplate(tmpl, it.value().handler);
+                tmpl.setUriTemplate(entry.templateString);
+                tmpl.setMimeType(entry.resource.mimeType());
+                session->registerDynamicResourceTemplate(tmpl, entry.handler);
             } else {
-                session->registerDynamicResource(it.value().resource, it.value().handler);
+                session->registerDynamicResource(entry.resource, entry.handler);
             }
         }
 
@@ -488,6 +489,7 @@ void QMcpServer::registerDynamicResourceTemplate(const QMcpResourceTemplate &res
     entry.resource.setUri(QUrl(resourceTemplate.uriTemplate()));
     entry.resource.setMimeType(resourceTemplate.mimeType());
     entry.isTemplate = true;
+    entry.templateString = resourceTemplate.uriTemplate();  // Store original template string
     entry.handler = handler;
 
     d->dynamicResources.append(entry);
