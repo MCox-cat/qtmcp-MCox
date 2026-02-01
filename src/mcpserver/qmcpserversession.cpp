@@ -501,21 +501,30 @@ void QMcpServerSession::unregisterDynamicTool(const QString &name)
 void QMcpServerSession::registerDynamicResourceTemplate(const QMcpResourceTemplate &resourceTemplate,
                                                          DynamicResourceHandler handler)
 {
-    qDebug() << "[QMcpServerSession] Registering template, uriTemplate:" << resourceTemplate.uriTemplate();
+    QString templateUri = resourceTemplate.uriTemplate();
+    qDebug() << "[QMcpServerSession] Registering template, uriTemplate:" << templateUri;
 
     Private::DynamicResourceEntry entry;
     entry.resource.setName(resourceTemplate.name());
     entry.resource.setDescription(resourceTemplate.description());
     // DON'T convert template to QUrl - it will encode {id} as %7Bid%7D
     // Just store the template string as-is
-    entry.resource.setUri(QUrl::fromEncoded(resourceTemplate.uriTemplate().toUtf8()));
+    entry.resource.setUri(QUrl::fromEncoded(templateUri.toUtf8()));
     entry.resource.setMimeType(resourceTemplate.mimeType());
     entry.isTemplate = true;
     entry.handler = handler;
 
-    QString key = resourceTemplate.uriTemplate();
-    qDebug() << "[QMcpServerSession] Storing with key:" << key;
-    d->dynamicResources[key] = entry;
+    qDebug() << "[QMcpServerSession] Storing with key:" << templateUri;
+    qDebug() << "[QMcpServerSession] Current dynamicResources keys before insert:";
+    for (auto it = d->dynamicResources.constBegin(); it != d->dynamicResources.constEnd(); ++it) {
+        qDebug() << "  -" << it.key();
+    }
+    d->dynamicResources[templateUri] = entry;
+    qDebug() << "[QMcpServerSession] After insert, key in map:" << (d->dynamicResources.contains(templateUri) ? "YES" : "NO");
+    qDebug() << "[QMcpServerSession] Keys after insert:";
+    for (auto it = d->dynamicResources.constBegin(); it != d->dynamicResources.constEnd(); ++it) {
+        qDebug() << "  -" << it.key();
+    }
     d->notifyResourceListChanged.start();
 }
 
