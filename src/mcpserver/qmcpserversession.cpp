@@ -251,9 +251,12 @@ QList<QMcpReadResourceResultContents> QMcpServerSession::contents(const QUrl &ur
 
     // Check dynamic handlers FIRST (templates and exact matches)
     QString uriString = uri.toString();
+    qDebug() << "[QMcpServerSession] Looking up URI:" << uriString;
+    qDebug() << "[QMcpServerSession] Dynamic resources count:" << d->dynamicResources.size();
 
     // First check for exact match in dynamic resources
     if (d->dynamicResources.contains(uriString)) {
+        qDebug() << "[QMcpServerSession] Found exact match for:" << uriString;
         const auto &entry = d->dynamicResources[uriString];
         if (!entry.isTemplate && entry.handler) {
             ret.append(entry.handler(uri));
@@ -261,6 +264,7 @@ QList<QMcpReadResourceResultContents> QMcpServerSession::contents(const QUrl &ur
         }
     }
 
+    qDebug() << "[QMcpServerSession] No exact match, checking templates...";
     // Then check for URI template matches (simple pattern matching for now)
     // Full RFC 6570 implementation would be more complex
     for (auto it = d->dynamicResources.constBegin(); it != d->dynamicResources.constEnd(); ++it) {
