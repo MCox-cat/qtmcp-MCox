@@ -273,12 +273,12 @@ QList<QMcpReadResourceResultContents> QMcpServerSession::contents(const QUrl &ur
             qDebug() << "[QMcpServerSession] Checking template:" << template_ << "against URI:" << uriString;
             // Simple template matching: replace {id} with a placeholder, escape, then replace placeholder with regex
             QString pattern = template_;
-            // Replace {variables} with a unique placeholder
-            pattern.replace(QRegularExpression("\\{[^}]+\\}"), "\x01PLACEHOLDER\x01");
+            // Replace {variables} with a unique placeholder that won't be escaped
+            pattern.replace(QRegularExpression("\\{[^}]+\\}"), "__MCPVAR__");
             // Escape regex special characters
             pattern = QRegularExpression::escape(pattern);
             // Replace placeholder with regex pattern
-            pattern.replace("\x01PLACEHOLDER\x01", "([^/]+)");
+            pattern.replace("__MCPVAR__", "([^/]+)");
             // Add anchors
             pattern = "^" + pattern + "$";
             qDebug() << "[QMcpServerSession] Generated pattern:" << pattern;
