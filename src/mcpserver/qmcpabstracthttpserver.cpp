@@ -59,8 +59,21 @@ void QMcpAbstractHttpServer::Private::handleDisconnected(QTcpSocket *socket)
     if (!socket)
         return;
 
+    // Remove socket from dataMap
     if (dataMap.contains(socket)) {
         dataMap.remove(socket);
+    }
+
+    // Remove socket from sessions map (find all session IDs that map to this socket)
+    QList<QUuid> sessionsToRemove;
+    for (auto it = sessions.constBegin(); it != sessions.constEnd(); ++it) {
+        if (it.value() == socket) {
+            sessionsToRemove.append(it.key());
+        }
+    }
+    for (const QUuid &sessionId : sessionsToRemove) {
+        sessions.remove(sessionId);
+        qDebug() << "[QMcpAbstractHttpServer] Removed disconnected session:" << sessionId;
     }
 
     socket->deleteLater();
@@ -305,6 +318,14 @@ void QMcpAbstractHttpServer::sendSseEvent(const QUuid &id, const QByteArray &dat
         return;
     }
     auto *socket = d->sessions.value(id);
+
+    // Defensive check: ensure socket is valid and connected
+    if (!socket || socket->state() != QAbstractSocket::ConnectedState) {
+        qWarning() << "sse" << id << "socket is null or not connected, removing session";
+        d->sessions.remove(id);
+        return;
+    }
+
     QByteArray message;
     if (!event.isEmpty())
         message += "event: " + event.toUtf8() + "\r\n";
