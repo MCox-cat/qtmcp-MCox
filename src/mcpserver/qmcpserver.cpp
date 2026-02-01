@@ -96,16 +96,18 @@ QMcpServer::Private::Private(const QString &type, QMcpServer *parent)
             session->registerDynamicTool(pair.first, pair.second);
 
         // register dynamic resources
-        for (const auto &entry : std::as_const(dynamicResources)) {
-            if (entry.isTemplate) {
+        for (auto it = dynamicResources.constBegin(); it != dynamicResources.constEnd(); ++it) {
+            if (it.value().isTemplate) {
                 QMcpResourceTemplate tmpl;
-                tmpl.setName(entry.resource.name());
-                tmpl.setDescription(entry.resource.description());
-                tmpl.setUriTemplate(entry.resource.uri().toString());
-                tmpl.setMimeType(entry.resource.mimeType());
-                session->registerDynamicResourceTemplate(tmpl, entry.handler);
+                tmpl.setName(it.value().resource.name());
+                tmpl.setDescription(it.value().resource.description());
+                // Use the map key (original template string) instead of uri().toString()
+                // which would have {id} URL-encoded as %7Bid%7D
+                tmpl.setUriTemplate(it.key());
+                tmpl.setMimeType(it.value().resource.mimeType());
+                session->registerDynamicResourceTemplate(tmpl, it.value().handler);
             } else {
-                session->registerDynamicResource(entry.resource, entry.handler);
+                session->registerDynamicResource(it.value().resource, it.value().handler);
             }
         }
 
