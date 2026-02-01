@@ -271,14 +271,47 @@ QList<QMcpReadResourceResultContents> QMcpServerSession::contents(const QUrl &ur
         if (it.value().isTemplate) {
             QString template_ = it.key();
             qDebug() << "[QMcpServerSession] Checking template:" << template_ << "against URI:" << uriString;
-            // Simple template matching: replace {id} with a placeholder, escape, then replace placeholder with regex
-            QString pattern = template_;
-            // Replace {variables} with a unique placeholder that won't be escaped
-            pattern.replace(QRegularExpression("\\{[^}]+\\}"), "__MCPVAR__");
-            // Escape regex special characters
-            pattern = QRegularExpression::escape(pattern);
-            // Replace placeholder with regex pattern
-            pattern.replace("__MCPVAR__", "([^/]+)");
+
+            // Build regex pattern by manually processing the template
+            QString pattern;
+            int pos = 0;
+            QRegularExpression varRegex("\\{[^}]+\\}");
+            QRegularExpressionMatchIterator matchIt = varRegex.globalMatch(template_);
+
+            // Helper lambda to escape regex special characters
+            auto escapeRegex = [](const QString &str) {
+                QString result = str;
+                result.replace("\\", "\\\\");
+                result.replace(".", "\\.");
+                result.replace("^", "\\^");
+                result.replace("$", "\\$");
+                result.replace("*", "\\*");
+                result.replace("+", "\\+");
+                result.replace("?", "\\?");
+                result.replace("{", "\\{");
+                result.replace("}", "\\}");
+                result.replace("[", "\\[");
+                result.replace("]", "\\]");
+                result.replace("|", "\\|");
+                result.replace("(", "\\(");
+                result.replace(")", "\\)");
+                return result;
+            };
+
+            while (matchIt.hasNext()) {
+                QRegularExpressionMatch match = matchIt.next();
+                // Add escaped literal part before this variable
+                pattern += escapeRegex(template_.mid(pos, match.capturedStart() - pos));
+                // Add regex pattern for the variable
+                pattern += "([^/]+)";
+                pos = match.capturedEnd();
+            }
+
+            // Add any remaining literal part
+            if (pos < template_.length()) {
+                pattern += escapeRegex(template_.mid(pos));
+            }
+
             // Add anchors
             pattern = "^" + pattern + "$";
             qDebug() << "[QMcpServerSession] Generated pattern:" << pattern;
