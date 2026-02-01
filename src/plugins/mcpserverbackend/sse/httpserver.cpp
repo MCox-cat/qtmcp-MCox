@@ -70,11 +70,33 @@ QByteArray HttpServer::post(const QNetworkRequest &request, const QByteArray &bo
             return QByteArray();
         }
 
-        // Check if this session actually exists - if not, create it
+        // Check if this session actually exists - reject if stale
         if (!d->sessions.contains(session)) {
-            qCDebug(lcQMcpServerSsePlugin) << "Root POST for unknown session - creating new:" << session;
-            d->sessions.insert(session);
-            emit newSession(session);
+            qWarning() << "Root POST for unknown/stale session:" << session;
+            // Return JSON-RPC error response
+            QJsonObject errorResponse;
+            errorResponse["jsonrpc"] = "2.0";
+            QJsonObject error;
+            error["code"] = -32600;  // InvalidRequest
+            error["message"] = "Invalid session - please reconnect and re-initialize";
+            QJsonObject errorData;
+            errorData["sessionId"] = session.toString(QUuid::WithoutBraces);
+            errorData["reason"] = "session_not_found";
+            error["data"] = errorData;
+            errorResponse["error"] = error;
+
+            QByteArray response = QByteArrayLiteral("HTTP/1.1 400 Bad Request\r\n")
+                                  + "Content-Type: application/json\r\n"
+                                  + "Connection: close\r\n"
+                                  + "\r\n"
+                                  + QJsonDocument(errorResponse).toJson(QJsonDocument::Compact);
+
+            QTcpSocket *socket = getSocketForRequest(request);
+            if (socket) {
+                socket->write(response);
+                socket->flush();
+            }
+            return QByteArray();  // Return empty to prevent double-response
         }
 
         // Queue this request for async response
@@ -217,18 +239,23 @@ QByteArray HttpServer::getMcp(const QNetworkRequest &request)
 
     if (request.hasRawHeader("Mcp-Session-Id")) {
         QByteArray sessionIdHeader = request.rawHeader("Mcp-Session-Id");
-        session = QUuid::fromString(QString::fromUtf8(sessionIdHeader));
+        QUuid clientSession = QUuid::fromString(QString::fromUtf8(sessionIdHeader));
 
-        if (session.isNull()) {
+        if (clientSession.isNull()) {
             qWarning() << "Invalid Mcp-Session-Id in GET:" << sessionIdHeader;
             return QByteArray();
         }
 
-        // Check if this session actually exists - if not, treat as new session
-        if (!d->sessions.contains(session)) {
-            qCDebug(lcQMcpServerSsePlugin) << "GET for unknown session - treating as new:" << session;
+        // Check if this session actually exists
+        if (!d->sessions.contains(clientSession)) {
+            // Stale session ID - create a fresh one so client knows to re-initialize
+            session = QUuid::createUuid();
             isNewSession = true;
+            qCDebug(lcQMcpServerSsePlugin) << "GET for unknown session" << clientSession
+                                           << "- returning fresh session:" << session;
         } else {
+            // Valid existing session
+            session = clientSession;
             qCDebug(lcQMcpServerSsePlugin) << "GET for existing session:" << session;
         }
     } else {
@@ -349,7 +376,6 @@ QByteArray HttpServer::postMcp(const QNetworkRequest &request, const QByteArray 
     qCDebug(lcQMcpServerSsePlugin) << "/mcp POST received";
 
     QUuid session;
-    bool isNewSession = false;
 
     // Check if client provided a session ID
     if (request.hasRawHeader("Mcp-Session-Id")) {
@@ -358,24 +384,81 @@ QByteArray HttpServer::postMcp(const QNetworkRequest &request, const QByteArray 
 
         if (session.isNull()) {
             qWarning() << "Invalid Mcp-Session-Id header:" << sessionIdHeader;
-            // Create new session as fallback
-            session = QUuid::createUuid();
-            isNewSession = true;
-        } else {
-            // Check if this session actually exists - if not, treat as new session
-            if (!d->sessions.contains(session)) {
-                qCDebug(lcQMcpServerSsePlugin) << "POST for unknown session - treating as new:" << session;
-                isNewSession = true;
-            } else {
-                qCDebug(lcQMcpServerSsePlugin) << "Using existing session from header:" << session;
-            }
-        }
-    }
+            // Return error for invalid session ID
+            QJsonObject errorResponse;
+            errorResponse["jsonrpc"] = "2.0";
+            QJsonObject error;
+            error["code"] = -32600;  // InvalidRequest
+            error["message"] = "Invalid Mcp-Session-Id format";
+            errorResponse["error"] = error;
 
-    if (session.isNull()) {
-        // Create a new session for the new protocol
-        session = QUuid::createUuid();
-        isNewSession = true;
+            QByteArray response = QByteArrayLiteral("HTTP/1.1 400 Bad Request\r\n")
+                                  + "Content-Type: application/json\r\n"
+                                  + "Connection: close\r\n"
+                                  + "\r\n"
+                                  + QJsonDocument(errorResponse).toJson(QJsonDocument::Compact);
+
+            QTcpSocket *socket = getSocketForRequest(request);
+            if (socket) {
+                socket->write(response);
+                socket->flush();
+            }
+            return QByteArray();
+        }
+
+        // Check if this session actually exists - reject if stale
+        if (!d->sessions.contains(session)) {
+            qWarning() << "POST /mcp for unknown/stale session:" << session;
+            // Return JSON-RPC error response
+            QJsonObject errorResponse;
+            errorResponse["jsonrpc"] = "2.0";
+            QJsonObject error;
+            error["code"] = -32600;  // InvalidRequest
+            error["message"] = "Invalid session - please reconnect and re-initialize";
+            QJsonObject errorData;
+            errorData["sessionId"] = session.toString(QUuid::WithoutBraces);
+            errorData["reason"] = "session_not_found";
+            error["data"] = errorData;
+            errorResponse["error"] = error;
+
+            QByteArray response = QByteArrayLiteral("HTTP/1.1 400 Bad Request\r\n")
+                                  + "Content-Type: application/json\r\n"
+                                  + "Mcp-Session-Id: " + session.toByteArray(QUuid::WithoutBraces) + "\r\n"
+                                  + "Connection: close\r\n"
+                                  + "\r\n"
+                                  + QJsonDocument(errorResponse).toJson(QJsonDocument::Compact);
+
+            QTcpSocket *socket = getSocketForRequest(request);
+            if (socket) {
+                socket->write(response);
+                socket->flush();
+            }
+            return QByteArray();
+        }
+
+        qCDebug(lcQMcpServerSsePlugin) << "Using existing session from header:" << session;
+    } else {
+        // No session ID provided - this shouldn't happen for POST /mcp
+        qWarning() << "POST /mcp without Mcp-Session-Id header";
+        QJsonObject errorResponse;
+        errorResponse["jsonrpc"] = "2.0";
+        QJsonObject error;
+        error["code"] = -32600;  // InvalidRequest
+        error["message"] = "Missing Mcp-Session-Id header - please establish session first with GET /mcp";
+        errorResponse["error"] = error;
+
+        QByteArray response = QByteArrayLiteral("HTTP/1.1 400 Bad Request\r\n")
+                              + "Content-Type: application/json\r\n"
+                              + "Connection: close\r\n"
+                              + "\r\n"
+                              + QJsonDocument(errorResponse).toJson(QJsonDocument::Compact);
+
+        QTcpSocket *socket = getSocketForRequest(request);
+        if (socket) {
+            socket->write(response);
+            socket->flush();
+        }
+        return QByteArray();
     }
 
     // Get the socket for this request
@@ -389,14 +472,8 @@ QByteArray HttpServer::postMcp(const QNetworkRequest &request, const QByteArray 
     // This prevents the automatic HTTP response wrapper
     registerSession(session, request);
 
-    // Mark this session as using new protocol (do this for every request, not just new sessions)
+    // Mark this session as using new protocol
     d->sessionUsesNewProtocol.insert(session, true);
-
-    if (isNewSession) {
-        qCDebug(lcQMcpServerSsePlugin) << "Created new protocol session:" << session;
-        d->sessions.insert(session);
-        emit newSession(session);
-    }
 
     // Parse and forward the request
     QJsonParseError error;
