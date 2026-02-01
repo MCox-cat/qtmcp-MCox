@@ -64,10 +64,17 @@ QByteArray HttpServer::post(const QNetworkRequest &request, const QByteArray &bo
         session = QUuid::fromString(QString::fromUtf8(sessionIdHeader));
         usesNewProtocol = true;
         qCDebug(lcQMcpServerSsePlugin) << "New protocol POST with session ID from header:" << session;
-        
+
         if (session.isNull()) {
             qWarning() << "Invalid Mcp-Session-Id header:" << sessionIdHeader;
             return QByteArray();
+        }
+
+        // Check if this session actually exists - if not, create it
+        if (!d->sessions.contains(session)) {
+            qCDebug(lcQMcpServerSsePlugin) << "Root POST for unknown session - creating new:" << session;
+            d->sessions.insert(session);
+            emit newSession(session);
         }
 
         // Queue this request for async response
@@ -216,7 +223,14 @@ QByteArray HttpServer::getMcp(const QNetworkRequest &request)
             qWarning() << "Invalid Mcp-Session-Id in GET:" << sessionIdHeader;
             return QByteArray();
         }
-        qCDebug(lcQMcpServerSsePlugin) << "GET for existing session:" << session;
+
+        // Check if this session actually exists - if not, treat as new session
+        if (!d->sessions.contains(session)) {
+            qCDebug(lcQMcpServerSsePlugin) << "GET for unknown session - treating as new:" << session;
+            isNewSession = true;
+        } else {
+            qCDebug(lcQMcpServerSsePlugin) << "GET for existing session:" << session;
+        }
     } else {
         // Initial connection - create a new session
         session = QUuid::createUuid();
@@ -341,13 +355,20 @@ QByteArray HttpServer::postMcp(const QNetworkRequest &request, const QByteArray 
     if (request.hasRawHeader("Mcp-Session-Id")) {
         const QByteArray sessionIdHeader = request.rawHeader("Mcp-Session-Id");
         session = QUuid::fromString(QString::fromUtf8(sessionIdHeader));
-        qCDebug(lcQMcpServerSsePlugin) << "Using existing session from header:" << session;
 
         if (session.isNull()) {
             qWarning() << "Invalid Mcp-Session-Id header:" << sessionIdHeader;
             // Create new session as fallback
             session = QUuid::createUuid();
             isNewSession = true;
+        } else {
+            // Check if this session actually exists - if not, treat as new session
+            if (!d->sessions.contains(session)) {
+                qCDebug(lcQMcpServerSsePlugin) << "POST for unknown session - treating as new:" << session;
+                isNewSession = true;
+            } else {
+                qCDebug(lcQMcpServerSsePlugin) << "Using existing session from header:" << session;
+            }
         }
     }
 
@@ -373,6 +394,7 @@ QByteArray HttpServer::postMcp(const QNetworkRequest &request, const QByteArray 
 
     if (isNewSession) {
         qCDebug(lcQMcpServerSsePlugin) << "Created new protocol session:" << session;
+        d->sessions.insert(session);
         emit newSession(session);
     }
 
