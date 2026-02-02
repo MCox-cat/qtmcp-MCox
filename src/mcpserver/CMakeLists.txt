@@ -27,6 +27,12 @@ qt_internal_add_module(McpServer
         QT_BUILD_MCPSERVER_LIB
 )
 
+# Workaround: rename library to not start with "Qt6" so windeployqt doesn't treat it as official Qt
+set_target_properties(McpServer PROPERTIES
+    OUTPUT_NAME "McpServer"
+    PREFIX "lib"
+)
+
 ## Scopes:
 #####################################################################
 

@@ -1,0 +1,9 @@
+{
+	"servers": {
+		"my-mcp-server-8f85d5fa-echo": {
+			"type": "streamableHttp",
+			"url": "http://127.0.0.1:8000/mcp"
+		}
+	},
+	"inputs": []
+}

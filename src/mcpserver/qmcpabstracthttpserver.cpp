@@ -31,6 +31,7 @@ public:
 
     QMap<QTcpSocket*, ParseData> dataMap;
     QMap<QUuid, QTcpSocket*> sessions;
+    QMap<QString, QString> responseHeaders;  // Custom headers for next response
 };
 
 QMcpAbstractHttpServer::Private::Private(QMcpAbstractHttpServer *parent)
@@ -58,8 +59,21 @@ void QMcpAbstractHttpServer::Private::handleDisconnected(QTcpSocket *socket)
     if (!socket)
         return;
 
+    // Remove socket from dataMap
     if (dataMap.contains(socket)) {
         dataMap.remove(socket);
+    }
+
+    // Remove socket from sessions map (find all session IDs that map to this socket)
+    QList<QUuid> sessionsToRemove;
+    for (auto it = sessions.constBegin(); it != sessions.constEnd(); ++it) {
+        if (it.value() == socket) {
+            sessionsToRemove.append(it.key());
+        }
+    }
+    for (const QUuid &sessionId : sessionsToRemove) {
+        sessions.remove(sessionId);
+        qDebug() << "[QMcpAbstractHttpServer] Removed disconnected session:" << sessionId;
     }
 
     socket->deleteLater();
@@ -137,6 +151,15 @@ void QMcpAbstractHttpServer::Private::parseHttpRequest(QTcpSocket *socket)
         data.request.setHeaders(headers);
         data.data = data.data.remove(0, prevLf + 2);
 
+        // Log incoming request details
+        qWarning() << "[HTTP Server] ===== Incoming Request =====";
+        qWarning() << "[HTTP Server] Method:" << method;
+        qWarning() << "[HTTP Server] Path:" << path;
+        qWarning() << "[HTTP Server] Headers:";
+        for (int i = 0; i < headers.size(); ++i) {
+            qWarning() << "[HTTP Server]  " << headers.nameAt(i) << ":" << headers.valueAt(i);
+        }
+
         QByteArray slotName = method.toLower();
         const auto pathElements = url.path().split("/"_L1, Qt::SkipEmptyParts);
         for (const auto &pe : pathElements) {
@@ -157,7 +180,14 @@ void QMcpAbstractHttpServer::Private::parseHttpRequest(QTcpSocket *socket)
         return;  // Wait for more data
     }
 
+    // Log body if present
+    if (!data.data.isEmpty()) {
+        qWarning() << "[HTTP Server] Body:" << data.data;
+    }
+    qWarning() << "[HTTP Server] =============================";
+
     if (data.indexOfMethod < 0) {
+        qWarning() << "[HTTP Server] No handler found for request";
         sendHttpResponse(socket, "Not Found"_ba, QStringLiteral("text/plain"), 404);
         return;
     }
@@ -203,13 +233,20 @@ void QMcpAbstractHttpServer::Private::sendHttpResponse(QTcpSocket *socket, const
     QString statusText = (statusCode == 200) ? "OK"_L1 : "Not Found"_L1;
     QByteArray response = u"HTTP/1.1 %1 %2\r\n"
                           "Content-Type: %3\r\n"
-                          "Content-Length: %4\r\n"
-                          "\r\n"_s
+                          "Content-Length: %4\r\n"_s
                               .arg(statusCode)
                               .arg(statusText)
                               .arg(contentType)
                               .arg(data.size())
                               .toLatin1();
+
+    // Add custom headers if any
+    for (auto it = responseHeaders.begin(); it != responseHeaders.end(); ++it) {
+        response += it.key().toUtf8() + ": " + it.value().toUtf8() + "\r\n";
+    }
+    responseHeaders.clear();  // Clear headers after use
+
+    response += "Connection: close\r\n\r\n";
     response += data;
     socket->write(response);
     socket->flush();
@@ -281,6 +318,14 @@ void QMcpAbstractHttpServer::sendSseEvent(const QUuid &id, const QByteArray &dat
         return;
     }
     auto *socket = d->sessions.value(id);
+
+    // Defensive check: ensure socket is valid and connected
+    if (!socket || socket->state() != QAbstractSocket::ConnectedState) {
+        qWarning() << "sse" << id << "socket is null or not connected, removing session";
+        d->sessions.remove(id);
+        return;
+    }
+
     QByteArray message;
     if (!event.isEmpty())
         message += "event: " + event.toUtf8() + "\r\n";
@@ -302,3 +347,31 @@ void QMcpAbstractHttpServer::closeSseConnection(const QUuid &id)
     return;
 }
 
+void QMcpAbstractHttpServer::setResponseHeader(const QString &name, const QString &value)
+{
+    d->responseHeaders.insert(name, value);
+}
+
+void QMcpAbstractHttpServer::registerSession(const QUuid &session, const QNetworkRequest &request)
+{
+    // Find the socket associated with this request
+    const auto sockets = d->dataMap.keys();
+    for (QTcpSocket *socket : sockets) {
+        if (d->dataMap.value(socket).request == request) {
+            d->sessions.insert(session, socket);
+            qDebug() << "Registered session" << session << "with socket";
+            break;
+        }
+    }
+}
+
+QTcpSocket* QMcpAbstractHttpServer::getSocketForRequest(const QNetworkRequest &request) const
+{
+    const auto sockets = d->dataMap.keys();
+    for (QTcpSocket *socket : sockets) {
+        if (d->dataMap.value(socket).request == request) {
+            return socket;
+        }
+    }
+    return nullptr;
+}

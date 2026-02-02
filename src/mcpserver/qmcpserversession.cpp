@@ -4,6 +4,7 @@
 #include "qmcpserversession.h"
 #include "qmcpserver.h"
 #include <QtCore/QMultiHash>
+#include <QtCore/QRegularExpression>
 #include <QtCore/QTimer>
 #ifdef QT_GUI_LIB
 #include <QtGui/QAction>
@@ -31,6 +32,19 @@ public:
 #ifdef QT_GUI_LIB
     QList<QPair<QMcpTool, QAction *>> actions;
 #endif
+    QList<QPair<QMcpTool, QMcpServerSession::DynamicToolHandler>> dynamicTools;  // NEW: Runtime-registered tools
+
+    // Dynamic resources storage
+    struct DynamicResourceEntry {
+        QMcpResource resource;               // or QMcpResourceTemplate
+        bool isTemplate;
+        QMcpServerSession::DynamicResourceHandler handler;
+    };
+    QHash<QString, DynamicResourceEntry> dynamicResources;  // Key by URI/template string
+
+    // Dynamic prompts storage
+    QList<QPair<QMcpPrompt, QMcpServerSession::DynamicPromptHandler>> dynamicPrompts;
+
     QList<QMcpRoot> roots;
     QMultiHash<QUrl, QUrl> subscriptions;
 
@@ -170,7 +184,21 @@ void QMcpServerSession::removeResourceAt(int index)
 
 QList<QMcpResourceTemplate> QMcpServerSession::resourceTemplates() const
 {
-    return d->resourceTemplates;
+    QList<QMcpResourceTemplate> ret = d->resourceTemplates;
+
+    // Add dynamic resource templates
+    for (auto it = d->dynamicResources.constBegin(); it != d->dynamicResources.constEnd(); ++it) {
+        if (it.value().isTemplate) {
+            QMcpResourceTemplate tmpl;
+            tmpl.setName(it.value().resource.name());
+            tmpl.setDescription(it.value().resource.description());
+            tmpl.setUriTemplate(it.key());
+            tmpl.setMimeType(it.value().resource.mimeType());
+            ret.append(tmpl);
+        }
+    }
+
+    return ret;
 }
 
 QList<QMcpResource> QMcpServerSession::resources(QString *cursor) const
@@ -178,11 +206,20 @@ QList<QMcpResource> QMcpServerSession::resources(QString *cursor) const
     QList<QMcpResource> ret;
     const int pageSize = 50; // Default page size
 
-    // Collect all resources first
+    // Collect all resources first (static + dynamic)
     QList<QMcpResource> allResources;
-    allResources.reserve(d->resources.count());
+    allResources.reserve(d->resources.count() + d->dynamicResources.count());
+
+    // Add static resources
     for (const auto &pair : std::as_const(d->resources))
         allResources.append(pair.first);
+
+    // Add dynamic resources (non-templates only)
+    for (auto it = d->dynamicResources.constBegin(); it != d->dynamicResources.constEnd(); ++it) {
+        if (!it.value().isTemplate) {
+            allResources.append(it.value().resource);
+        }
+    }
 
     // Start from the cursor position if provided
     int startIndex = cursor && !cursor->isEmpty() ? cursor->toInt() : 0;
@@ -211,6 +248,88 @@ QList<QMcpReadResourceResultContents> QMcpServerSession::contents(const QUrl &ur
 {
     qDebug() << Q_FUNC_INFO << __LINE__ << uri;
     QList<QMcpReadResourceResultContents> ret;
+
+    // Check dynamic handlers FIRST (templates and exact matches)
+    QString uriString = uri.toString();
+    qDebug() << "[QMcpServerSession] Looking up URI:" << uriString;
+    qDebug() << "[QMcpServerSession] Dynamic resources count:" << d->dynamicResources.size();
+
+    // First check for exact match in dynamic resources
+    if (d->dynamicResources.contains(uriString)) {
+        qDebug() << "[QMcpServerSession] Found exact match for:" << uriString;
+        const auto &entry = d->dynamicResources[uriString];
+        if (!entry.isTemplate && entry.handler) {
+            ret.append(entry.handler(uri));
+            return ret;
+        }
+    }
+
+    qDebug() << "[QMcpServerSession] No exact match, checking templates...";
+    // Then check for URI template matches (simple pattern matching for now)
+    // Full RFC 6570 implementation would be more complex
+    for (auto it = d->dynamicResources.constBegin(); it != d->dynamicResources.constEnd(); ++it) {
+        if (it.value().isTemplate) {
+            QString template_ = it.key();
+            qDebug() << "[QMcpServerSession] Checking template:" << template_ << "against URI:" << uriString;
+
+            // Build regex pattern by manually processing the template
+            QString pattern;
+            int pos = 0;
+            QRegularExpression varRegex("\\{[^}]+\\}");
+            QRegularExpressionMatchIterator matchIt = varRegex.globalMatch(template_);
+
+            // Helper lambda to escape regex special characters
+            auto escapeRegex = [](const QString &str) {
+                QString result = str;
+                result.replace("\\", "\\\\");
+                result.replace(".", "\\.");
+                result.replace("^", "\\^");
+                result.replace("$", "\\$");
+                result.replace("*", "\\*");
+                result.replace("+", "\\+");
+                result.replace("?", "\\?");
+                result.replace("{", "\\{");
+                result.replace("}", "\\}");
+                result.replace("[", "\\[");
+                result.replace("]", "\\]");
+                result.replace("|", "\\|");
+                result.replace("(", "\\(");
+                result.replace(")", "\\)");
+                return result;
+            };
+
+            while (matchIt.hasNext()) {
+                QRegularExpressionMatch match = matchIt.next();
+                // Add escaped literal part before this variable
+                pattern += escapeRegex(template_.mid(pos, match.capturedStart() - pos));
+                // Add regex pattern for the variable
+                pattern += "([^/]+)";
+                pos = match.capturedEnd();
+            }
+
+            // Add any remaining literal part
+            if (pos < template_.length()) {
+                pattern += escapeRegex(template_.mid(pos));
+            }
+
+            // Add anchors
+            pattern = "^" + pattern + "$";
+            qDebug() << "[QMcpServerSession] Generated pattern:" << pattern;
+
+            QRegularExpression regex(pattern);
+            auto match = regex.match(uriString);
+            qDebug() << "[QMcpServerSession] Match result:" << match.hasMatch();
+            if (match.hasMatch()) {
+                if (it.value().handler) {
+                    qDebug() << "[QMcpServerSession] Calling handler for template:" << template_;
+                    ret.append(it.value().handler(uri));
+                    return ret;
+                }
+            }
+        }
+    }
+
+    // Fall back to static resources
     for (const auto &pair : std::as_const(d->resources)) {
         qDebug() << Q_FUNC_INFO << __LINE__ << pair.first.name() << pair.first.size() << pair.first.uri();
         if (pair.first.uri() == uri)
@@ -248,10 +367,16 @@ QList<QMcpPrompt> QMcpServerSession::prompts(QString *cursor) const
     QList<QMcpPrompt> ret;
     const int pageSize = 50; // Default page size
 
-    // Collect all prompts first
+    // Collect all prompts first (static + dynamic)
     QList<QMcpPrompt> allPrompts;
-    allPrompts.reserve(d->prompts.count());
+    allPrompts.reserve(d->prompts.count() + d->dynamicPrompts.count());
+
+    // Add static prompts
     for (const auto &pair : std::as_const(d->prompts))
+        allPrompts.append(pair.first);
+
+    // Add dynamic prompts
+    for (const auto &pair : std::as_const(d->dynamicPrompts))
         allPrompts.append(pair.first);
 
     // Start from the cursor position if provided
@@ -277,9 +402,21 @@ QList<QMcpPrompt> QMcpServerSession::prompts(QString *cursor) const
     return ret;
 }
 
-QList<QMcpPromptMessage> QMcpServerSession::messages(const QString &name) const
+QList<QMcpPromptMessage> QMcpServerSession::messages(const QString &name, const QJsonObject &arguments) const
 {
     QList<QMcpPromptMessage> ret;
+
+    // Check dynamic prompts FIRST (they need arguments)
+    for (const auto &pair : std::as_const(d->dynamicPrompts)) {
+        if (pair.first.name() == name) {
+            if (pair.second) {
+                ret = pair.second(name, arguments);
+                return ret;
+            }
+        }
+    }
+
+    // Fall back to static prompts
     for (const auto &pair : std::as_const(d->prompts))
         if (pair.first.name() == name)
             ret.append(pair.second);
@@ -381,6 +518,92 @@ void QMcpServerSession::unregisterTool(const QAction *action)
 }
 #endif
 
+void QMcpServerSession::registerDynamicTool(const QMcpTool &tool, DynamicToolHandler handler)
+{
+    d->dynamicTools.append(std::make_pair(tool, handler));
+    d->notifyToolListChanged.start();
+}
+
+void QMcpServerSession::unregisterDynamicTool(const QString &name)
+{
+    bool changed = false;
+    for (int i = d->dynamicTools.length() - 1; i >= 0; i--) {
+        if (d->dynamicTools.at(i).first.name() == name) {
+            d->dynamicTools.removeAt(i);
+            changed = true;
+        }
+    }
+    if (changed)
+        d->notifyToolListChanged.start();
+}
+
+void QMcpServerSession::registerDynamicResourceTemplate(const QMcpResourceTemplate &resourceTemplate,
+                                                         DynamicResourceHandler handler)
+{
+    QString templateUri = resourceTemplate.uriTemplate();
+    qDebug() << "[QMcpServerSession] Registering template, uriTemplate:" << templateUri;
+
+    Private::DynamicResourceEntry entry;
+    entry.resource.setName(resourceTemplate.name());
+    entry.resource.setDescription(resourceTemplate.description());
+    // DON'T convert template to QUrl - it will encode {id} as %7Bid%7D
+    // Just store the template string as-is
+    entry.resource.setUri(QUrl::fromEncoded(templateUri.toUtf8()));
+    entry.resource.setMimeType(resourceTemplate.mimeType());
+    entry.isTemplate = true;
+    entry.handler = handler;
+
+    qDebug() << "[QMcpServerSession] Storing with key:" << templateUri;
+    qDebug() << "[QMcpServerSession] Current dynamicResources keys before insert:";
+    for (auto it = d->dynamicResources.constBegin(); it != d->dynamicResources.constEnd(); ++it) {
+        qDebug() << "  -" << it.key();
+    }
+    d->dynamicResources[templateUri] = entry;
+    qDebug() << "[QMcpServerSession] After insert, key in map:" << (d->dynamicResources.contains(templateUri) ? "YES" : "NO");
+    qDebug() << "[QMcpServerSession] Keys after insert:";
+    for (auto it = d->dynamicResources.constBegin(); it != d->dynamicResources.constEnd(); ++it) {
+        qDebug() << "  -" << it.key();
+    }
+    d->notifyResourceListChanged.start();
+}
+
+void QMcpServerSession::registerDynamicResource(const QMcpResource &resource,
+                                                 DynamicResourceHandler handler)
+{
+    Private::DynamicResourceEntry entry;
+    entry.resource = resource;
+    entry.isTemplate = false;
+    entry.handler = handler;
+
+    d->dynamicResources[resource.uri().toString()] = entry;
+    d->notifyResourceListChanged.start();
+}
+
+void QMcpServerSession::unregisterDynamicResource(const QUrl &uri)
+{
+    if (d->dynamicResources.remove(uri.toString()) > 0)
+        d->notifyResourceListChanged.start();
+}
+
+void QMcpServerSession::registerDynamicPrompt(const QMcpPrompt &prompt, DynamicPromptHandler handler)
+{
+    d->dynamicPrompts.append(std::make_pair(prompt, handler));
+    d->notifyPromptListChanged.start();
+}
+
+void QMcpServerSession::unregisterDynamicPrompt(const QString &name)
+{
+    bool changed = false;
+    for (int i = d->dynamicPrompts.length() - 1; i >= 0; i--) {
+        if (d->dynamicPrompts.at(i).first.name() == name) {
+            d->dynamicPrompts.removeAt(i);
+            changed = true;
+        }
+    }
+    if (changed)
+        d->notifyPromptListChanged.start();
+}
+
 namespace {
 template<class T>
 T callMethod(QObject *object, const QMetaMethod *method, const QVariantList &args)
@@ -425,12 +648,16 @@ QList<QMcpTool> QMcpServerSession::tools(QString *cursor) const
 {
     Q_UNUSED(cursor);
     QList<QMcpTool> ret;
+    // Add static tools (Q_INVOKABLE)
     for (const auto &pair : std::as_const(d->tools))
         ret.append(pair.first);
 #ifdef QT_GUI_LIB
     for (const auto &pair : std::as_const(d->actions))
         ret.append(pair.first);
 #endif
+    // Add dynamic tools (runtime-registered)
+    for (const auto &pair : std::as_const(d->dynamicTools))
+        ret.append(pair.first);
     std::sort(ret.begin(), ret.end(), [](const QMcpTool &tool1, const QMcpTool &tool2) {
         return tool1.name() < tool2.name();
     });
@@ -441,6 +668,23 @@ QList<QMcpCallToolResultContent> QMcpServerSession::callTool(const QString &name
 {
     bool found = false;
     QList<QMcpCallToolResultContent> ret;
+
+    // Check dynamic tools FIRST (runtime-registered with handlers)
+    for (const auto &pair : std::as_const(d->dynamicTools)) {
+        const auto &tool = pair.first;
+        const auto &handler = pair.second;
+
+        if (tool.name() == name) {
+            // Call the dynamic handler
+            ret = handler(params);
+            found = true;
+            if (ok)
+                *ok = true;
+            return ret;
+        }
+    }
+
+    // Then check static tools (Q_INVOKABLE methods)
     for (const auto &pair : std::as_const(d->tools)) {
         const auto tool = pair.first;
         // check name first

@@ -39,6 +39,19 @@ public:
 #ifdef QT_GUI_LIB
     QHash<QAction *, QString> actions;
 #endif
+    QList<QPair<QMcpTool, QMcpServer::DynamicToolHandler>> dynamicTools;  // NEW: Runtime-registered tools
+
+    // Dynamic resources storage
+    struct DynamicResourceReg {
+        QMcpResource resource;
+        bool isTemplate;
+        QString templateString;  // Original template string (not URL-encoded)
+        QMcpServer::DynamicResourceHandler handler;
+    };
+    QList<DynamicResourceReg> dynamicResources;
+
+    // Dynamic prompts storage
+    QList<QPair<QMcpPrompt, QMcpServer::DynamicPromptHandler>> dynamicPrompts;
 };
 
 QMcpServer::Private::Private(const QString &type, QMcpServer *parent)
@@ -79,6 +92,29 @@ QMcpServer::Private::Private(const QString &type, QMcpServer *parent)
         for (auto i = actions.cbegin(), end = actions.cend(); i != end; ++i)
             session->registerTool(i.key(), i.value());
 #endif
+        // register dynamic tools
+        for (const auto &pair : std::as_const(dynamicTools))
+            session->registerDynamicTool(pair.first, pair.second);
+
+        // register dynamic resources
+        for (const auto &entry : std::as_const(dynamicResources)) {
+            if (entry.isTemplate) {
+                QMcpResourceTemplate tmpl;
+                tmpl.setName(entry.resource.name());
+                tmpl.setDescription(entry.resource.description());
+                // Use the stored template string instead of uri().toString()
+                // which would have {id} URL-encoded as %7Bid%7D
+                tmpl.setUriTemplate(entry.templateString);
+                tmpl.setMimeType(entry.resource.mimeType());
+                session->registerDynamicResourceTemplate(tmpl, entry.handler);
+            } else {
+                session->registerDynamicResource(entry.resource, entry.handler);
+            }
+        }
+
+        // register dynamic prompts
+        for (const auto &pair : std::as_const(dynamicPrompts))
+            session->registerDynamicPrompt(pair.first, pair.second);
 
         sessions.insert(sessionId, session);
         connect(session, &QMcpServerSession::resourceUpdated, q, [this, session](const QMcpResource &resource) {
@@ -419,6 +455,103 @@ void QMcpServer::unregisterTool(QAction *action)
     d->actions.remove(action);
 }
 #endif
+
+void QMcpServer::registerDynamicTool(const QMcpTool &tool, DynamicToolHandler handler)
+{
+    d->dynamicTools.append(std::make_pair(tool, handler));
+    const auto sessions = d->sessions.values();
+    for (auto *session : sessions) {
+        session->registerDynamicTool(tool, handler);
+    }
+}
+
+void QMcpServer::unregisterDynamicTool(const QString &name)
+{
+    // Remove from stored list
+    for (int i = d->dynamicTools.length() - 1; i >= 0; i--) {
+        if (d->dynamicTools.at(i).first.name() == name) {
+            d->dynamicTools.removeAt(i);
+        }
+    }
+    // Remove from all sessions
+    const auto sessions = d->sessions.values();
+    for (auto *session : sessions) {
+        session->unregisterDynamicTool(name);
+    }
+}
+
+void QMcpServer::registerDynamicResourceTemplate(const QMcpResourceTemplate &resourceTemplate,
+                                                   DynamicResourceHandler handler)
+{
+    Private::DynamicResourceReg entry;
+    entry.resource.setName(resourceTemplate.name());
+    entry.resource.setDescription(resourceTemplate.description());
+    entry.resource.setUri(QUrl(resourceTemplate.uriTemplate()));
+    entry.resource.setMimeType(resourceTemplate.mimeType());
+    entry.isTemplate = true;
+    entry.templateString = resourceTemplate.uriTemplate();  // Store original template string
+    entry.handler = handler;
+
+    d->dynamicResources.append(entry);
+    const auto sessions = d->sessions.values();
+    for (auto *session : sessions) {
+        session->registerDynamicResourceTemplate(resourceTemplate, handler);
+    }
+}
+
+void QMcpServer::registerDynamicResource(const QMcpResource &resource,
+                                          DynamicResourceHandler handler)
+{
+    Private::DynamicResourceReg entry;
+    entry.resource = resource;
+    entry.isTemplate = false;
+    entry.handler = handler;
+
+    d->dynamicResources.append(entry);
+    const auto sessions = d->sessions.values();
+    for (auto *session : sessions) {
+        session->registerDynamicResource(resource, handler);
+    }
+}
+
+void QMcpServer::unregisterDynamicResource(const QUrl &uri)
+{
+    // Remove from stored list
+    for (int i = d->dynamicResources.length() - 1; i >= 0; i--) {
+        if (d->dynamicResources.at(i).resource.uri() == uri) {
+            d->dynamicResources.removeAt(i);
+        }
+    }
+    // Remove from all sessions
+    const auto sessions = d->sessions.values();
+    for (auto *session : sessions) {
+        session->unregisterDynamicResource(uri);
+    }
+}
+
+void QMcpServer::registerDynamicPrompt(const QMcpPrompt &prompt, DynamicPromptHandler handler)
+{
+    d->dynamicPrompts.append(std::make_pair(prompt, handler));
+    const auto sessions = d->sessions.values();
+    for (auto *session : sessions) {
+        session->registerDynamicPrompt(prompt, handler);
+    }
+}
+
+void QMcpServer::unregisterDynamicPrompt(const QString &name)
+{
+    // Remove from stored list
+    for (int i = d->dynamicPrompts.length() - 1; i >= 0; i--) {
+        if (d->dynamicPrompts.at(i).first.name() == name) {
+            d->dynamicPrompts.removeAt(i);
+        }
+    }
+    // Remove from all sessions
+    const auto sessions = d->sessions.values();
+    for (auto *session : sessions) {
+        session->unregisterDynamicPrompt(name);
+    }
+}
 
 void QMcpServer::send(const QUuid &session, const QJsonObject &request, std::function<void(const QUuid &session, const QJsonObject &)> callback)
 {

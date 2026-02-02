@@ -18,3 +18,9 @@ qt_internal_add_module(McpClient
         Qt::McpCommon
         Qt::CorePrivate
 )
+
+# Workaround: rename library to not start with "Qt6" so windeployqt doesn't treat it as official Qt
+set_target_properties(McpClient PROPERTIES
+    OUTPUT_NAME "McpClient"
+    PREFIX "lib"
+)

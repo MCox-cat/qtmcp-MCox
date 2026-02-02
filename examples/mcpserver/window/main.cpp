@@ -3,6 +3,8 @@
 
 #include <QtCore/QCommandLineParser>
 #include <QtGui/QGuiApplication>
+#include <QtGui/QWindow>
+#include <QtGui/QScreen>
 #include <QtMcpServer/QMcpServer>
 #include "tools.h"
 
@@ -21,7 +23,7 @@ int main(int argc, char *argv[])
 
     QCommandLineOption backendOption(QStringList() << "b" << "backend",
                                    "Backend to use (stdio/sse).",
-                                   "backend", "stdio");
+                                   "backend", "sse");
     parser.addOption(backendOption);
 
     QCommandLineOption addressOption(QStringList() << "a" << "address",
@@ -34,13 +36,15 @@ int main(int argc, char *argv[])
     QString backend = parser.value(backendOption);
     QString address = parser.value(addressOption);
 
+    qDebug() << "Using backend:" << backend;
+    qDebug() << "Listening on address:" << address;
+    qDebug() << "Plugin paths:" << QCoreApplication::libraryPaths();
+    qDebug() << "Available backends:" << QMcpServer::backends();
+
     QMcpServer server(backend);
     server.registerToolSet(new Tools(&server)
                            , {
-                            { "screenShot", "Take screen shot of whole screen" },
-                            { "moveCursor", "Move cursor to specified position" },
-                            { "moveCursor/x", "X coordinate of cursor" },
-                            { "moveCursor/y", "Y coordinate of cursor" },
+                            { "screenShot", "Take screen shot of whole screen" }
                             });
     server.start(address);
 
